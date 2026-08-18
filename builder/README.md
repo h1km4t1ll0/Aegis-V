@@ -1,70 +1,65 @@
-# Сборка для MVP
+# builder — сборка и запуск в QEMU
 
-## Источники
-За основу взяты:
-* Проект [зимней школы](https://github.com/ylab-nsu/ws25-bootstrap)
-* [fosslinux/live-bootstrap](https://github.com/fosslinux/live-bootstrap)
-
-Для ориентирования в коде рекомендую использовать [RISC-V Assembler Cheat Sheet](https://projectf.io/posts/riscv-cheat-sheet/).
+Корневой обзор проекта: [../README.md](../README.md). Стадии boot / simon / hex0: [parts.rst](./parts.rst).
 
 ## Зависимости
 
-* `riscv64-unknown-elf-gcc` (Linux/WSL) или `riscv-none-elf-gcc` (Windows)
+* `riscv64-unknown-elf-gcc` (Linux/WSL) или `riscv64-elf-gcc` (macOS) / `riscv-none-elf-gcc` (Windows)
 * `qemu-system-riscv64`
 * `xxd`
 
 ## Запуск
 
-**WSL / Linux:**
+**Linux / WSL / macOS:**
+
 ```bash
 make build-and-run  # сборка + запуск
 make                # только сборка
-make run            # только запуск
+make run            # только запуск уже собранного образа
+make test           # pytest через QEMU
 ```
 
-**Windows (PowerShell):**
+На macOS, если компилятор из Homebrew:
+
+```bash
+make CROSS_COMPILE=riscv64-elf- build-and-run
+```
+
+**Windows (PowerShell):** Makefile рассчитан на Linux-утилиты (`chmod`, `stat`, `rm`) — нужен WSL:
+
 ```powershell
 wsl make build-and-run
-wsl make
-wsl make run
 ```
 
-> [!NOTE]
-> Makefile использует Linux-утилиты (`chmod`, `stat`, `rm`), поэтому на Windows необходим WSL.
-> Команда `wsl make` запускает сборку в WSL прямо из PowerShell.
-
-Выход из QEMU: `Ctrl+A`, затем `X`.
+Выход из QEMU: `Ctrl+A`, затем `X`. Образ грузится как firmware: `-M virt -bios image_qemu.bin -nographic`.
 
 ### Переменные
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `CROSS_COMPILE` | `riscv64-unknown-elf-` | Префикс компилятора |
-| `FS_FILES` | `payload.hex0` | Файлы, упаковываемые в образ |
-| `OUTPUT_IMAGE` | `image_payload.bin` | Имя выходного образа |
+| `CROSS_COMPILE` | `riscv64-unknown-elf-` | Префикс кросс-компилятора |
+| `BOOT_SRC` | `src/boot.S` | Stage 1 |
+| `SIMON_SRC` | `src/simon.S` | Stage 2 |
+| `FS_FILES` | `payload.hex0 payload.hex1` | Файлы, дописываемые в образ |
+| `OUTPUT_IMAGE` | `image_qemu.bin` | Имя выходного образа |
 
-Пример с кастомными файлами ФС:
 ```bash
-make FS_FILES="stage3.hex0 другой.hex0"
+make FS_FILES="payload.hex0"
 ```
 
-## Об образе
+## Образ
 
 ```
-image_payload.bin = boot.bin + simon.hex0 + <файлы ФС>
+image_qemu.bin = boot.bin + simon.hex0 + payload.hex0 + payload.hex1
 ```
 
-* **boot** — загрузчик (stage 1): декодирует `simon.hex0` из образа и передаёт управление simon. Заимствован из зимней школы, слегка изменён.
-* **simon** — минимальное ядро (stage 2): инициализирует файловую систему из данных образа, умеет компилировать hex0 и исполнять файлы.
-* **payload** — тестовая stage 3: выводит "Hello, World!" и уходит в цикл.
-
-Подробнее: [parts.rst](./parts.rst)
-
-![Демонстрация работы](./demo.png)
+* **boot** — загрузчик (stage 1): декодирует `simon.hex0` и передаёт управление simon.
+* **simon** — минимальное ядро (stage 2): ФС из хвоста образа, hex0/hex1, `do`, UART-CLI.
+* **payload** — тестовая stage 3: «Hello, World!» и цикл.
 
 ## Формат файлов ФС
 
-Каждый файл для упаковки в образ должен начинаться со строки `src <имя файла>` и заканчиваться нулевым байтом:
+Каждый файл в образе начинается со строки `src <имя>` и заканчивается нулевым байтом:
 
 ```
 src myfile.hex0
@@ -72,10 +67,11 @@ src myfile.hex0
 \0
 ```
 
-Пример: [payload.hex0](./payload.hex0)
+Примеры: [payload.hex0](./payload.hex0), [payload.hex1](./payload.hex1).
 
 ## Утилиты
 
-* `bin-to-hex0.sh` — перевод бинарника в формат hex0
-* `hex0.sh` — перевод hex0 обратно в бинарник
-* `add_null.sh` — добавление нулевого байта в конец файла
+* `bin-to-hex0.sh` — бинарник → hex0
+* `hex0.sh` — hex0 → бинарник
+* `elf2hex1.sh` — ELF → черновик hex1 (метки прыжков правятся руками)
+* `add_null.sh` — нулевой байт в конец файла
