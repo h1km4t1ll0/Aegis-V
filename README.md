@@ -4,6 +4,7 @@
 
 Истоки: [зимняя школа ylab](https://github.com/ylab-nsu/ws25-bootstrap) и идея [live-bootstrap](https://github.com/fosslinux/live-bootstrap). Ассемблер: [RISC-V cheat sheet](https://projectf.io/posts/riscv-cheat-sheet/).
 
+
 ## Purpose
 
 Обычный компилятор — чёрный ящик: много кода, мало доверия. Этот проект собирает первые стадии снизу вверх:
