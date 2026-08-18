@@ -1,0 +1,130 @@
+Copyright (C) 2017-2020 Matthew R. Wette
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without any warranty.
+
+2020-01-00  pending V1.00.2
+	* updated configure scripts to handle 2.0.14 via
+	  --with-guile=/path/to/guile
+
+2019-12-29  forgot to add for V1.00.1
+	* restored code that was commented-out in 1.00.0, so now
+	  #if FOO
+	  works again when FOO i
+
+2019-12-29  V1.00.1
+	* in nyacc/util.scm, changed a letrec* to letrec
+	* in nyacc/lang/util.scm, changed a letrec* to let*
+	* updated all Makefile.in for autoconf conventions, using
+	  abs_top_builddir and abs_top_srcdir
+	* added test-suite/Makefile.in to replace lower level versions
+
+2019-12-23  V1.00.0
+	* Makefiles now use "$(MAKE)" instead of "make"
+	* changed order of udict, ddict arguments to canize-enum-def-list
+	* removed hacks from eval-cpp-expr prev used by canize-enum-def-list
+	* cleaned up cxeval failures
+
+2019-12-15  V0.99.3
+	* in ffi-help.scm, filter "libm" from being added to dynamic-link:
+	  on Ubuntu libm.so is a text file which referneces another libm.so;
+	  dlopen() does not follow the reference, so just filter out since it
+	  is already linked into guile
+	* the C parser still breaks where typedefs are used otherwise, like
+	    typedef int t; int foo(t *t);  // in libxlsxwriter
+	* updated canize-enum-defs to use c99-eval-cx instead of cpp-eval
+	  which was a hack; also cleaned up canize to work with comments
+	  as attributes instead of elements; added test case
+
+2019-10-23  V0.99.2 release
+	* 0.99.1 fix broke things: __extension__ is not function macro
+	* ffi-help does not load libm now (ubuntu bug?)
+
+2019-10-19  V0.99.1 release
+	* fixed nyacc/lang/c99/util.scm: in c99-def-help function macro
+	  aliases changed from "__foo=__foo__" to "__foo(X)=__foo__(X)"
+
+2019-07-20  V0.99.0 release
+	* added fixed-point types to C99 parser
+	  http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2001/n1290.pdf
+	  make-num-reader accepts 0.25hr uhr r ur lr ulr hk uhk k uk lk ulk
+
+	* cleaned up documentation
+
+2019-05-30  V0.94.0 release
+	* removed export statment from c99/util.scm
+
+	* started C99 documentation
+
+	* fixed some version number errors
+
+2019-05-30  V0.93.0 release
+	* reworked configure and Makefile.in files to detect doc
+	  install dirs;
+  
+	* this CPP feature now works: #define /* hello */ abc 123
+
+	* fixed issue in c99/eval-cpp-incl where #f was ending up in
+	  output if no include file found
+
+2019-04-02  V0.92.0 release
+	
+	* The distribution has been converted to using autoconf, but
+	  without automake, which brings in a lot of rubble, IMO.
+
+	* Fixed bug in the ffi-helper that was genering bad code for
+	  unions.
+
+2019-01-18  V0.91.0 release
+
+	* module/nyacc/parse.scm (dmsg/n): added ntab information; so
+	debug is now more informative:
+	OLD:
+	  state 99, token 33 => shift, goto 300
+	NEW:
+	  state 99, token additive-expression => shift, goto 300
+
+	* ffi-help: converting composite literal to constant is no longer
+	a fatal error
+
+	* module/nyacc/lang/c99/cxeval.scm (eval-c99-cx): added case for
+	comp-lit; made failure throw c99-error instead of calling error
+
+	* module/nyacc/lang/c99/ffi-help.scm: updated error handling when
+	cannot convert enum or #defined argument to a constant
+
+2018-11-29  V0.90.0 release
+
+	* module/nyacc/lang/c99/mach.scm (c99-spec): K&R function
+	definitions have been removed, since conflict with __attribute__,
+	as in: int foo(x) __attribute__ ((__bar__)) int x; { ... };
+	Is attribute associated with declarator or declaration-specifiers?
+
+	* update Major overhaul of __attribute__ handling in C99 parser
+
+	* update merged nx-matlab updates from nxdev branch; added fix
+	for nyacc/lex.scm to parse #xffff00000
+
+
+	* update reworked the nyacc parser.scm file (see nyacc/ChangeLog);
+	instead of separate parsers for interactive and non-interactive
+	there is now one make-lalr-parser with optional #:interactive
+	keyword argument; also added #:skip-if-unexp for skipping
+	unexpected tokens (e.g., for comments -- this is useful);
+
+	* update moved code from c99/xparser.scm into c99/parser.scm and
+	deleted c99/xparser
+
+	* update cleaned up C99 parser set up; the mapping between parse
+	tables and the lexical analyzer setup was brittle; cleaned up
+	circular dependency between the parser and lexical analyzer using
+	letrec; see c99/parser.scm and c99/body.scm
+
+	new release 0.85.0
+	* changed the integrated hashed vs unhashed parser was split into
+	/sym parsers for unhashed and /num for hashed.
+	* updated interactive parsers, getting ready to and integrate file
+	and interactive parsers, and overhaul C99 parser setup
+

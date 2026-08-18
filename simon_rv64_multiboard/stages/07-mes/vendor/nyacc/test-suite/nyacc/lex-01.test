@@ -1,0 +1,127 @@
+;; nyacc/lex-01.test			-*- scheme -*-
+;;
+;; Copyright (C) 2015,2017,2019 Matthew R. Wette
+;;
+;; Copying and distribution of this file, with or without modification,
+;; are permitted in any medium without royalty provided the copyright
+;; notice and this notice are preserved.  This file is offered as-is,
+;; without any warranty.
+
+(define-module (lex-01)
+  #:use-module (nyacc lex)
+  #:use-module ((srfi srfi-1) #:select (fold))
+  #:use-module (test-suite lib))
+
+;; not used
+(define mt
+  (list
+   '("<=" . lteq)
+   '(">=" . gteq)
+   '("==" . eqeq)
+   '("<>" . ltgt)
+   '(".+" . dot-plus)
+   '(".-" . dot-minus)
+   '(".*" . dot-times)
+   '("./" . dot-divide)
+   '(".^" . dot-carat)
+   '(":=" . colon-eq)
+   '(class . class)
+   ))
+
+(define read-comm-1 (make-comm-reader '(("/*" . "*/") ("//" . "\n"))))
+
+(with-test-prefix "nyacc/lex-01"
+
+  ;; escape character 
+  (pass-if "C char literals"
+    (fold
+     (lambda (pair pass)
+       (and pass
+            (string=?
+             (with-input-from-string (car pair)
+               (lambda () (or (and=> (read-c-chlit (read-char)) cdr) "")))
+	     (cdr pair))))
+     #t
+     '(("'\\177'" . "\x7f")
+       )))
+
+  (pass-if "C integer literals"
+    (fold
+     (lambda (pair pass)
+       (and pass
+	    (with-input-from-string (car pair)
+	      (lambda ()
+		(let* ((p (read-c-num (read-char)))
+		       (t (and=> p car)) (r (and=> p cdr)))
+		  (and p (eq? t '$fixed) (string=? r (cdr pair))))))))
+     #t
+     '(("123" . "123") ("1l" . "1l")  ("23u" . "23u") ("34ull" . "34ull")
+       ("0b11" . "0b11")
+       )))
+
+  (pass-if "C floating-point literals"
+    (fold
+     (lambda (pair pass)
+       (and pass
+	    (with-input-from-string (car pair)
+	      (lambda ()
+		(let* ((p (read-c-num (read-char)))
+		       (t (and=> p car)) (r (and=> p cdr)))
+		  (and p (eq? t '$float) (string=? r (cdr pair))))))))
+     #t
+     '(("12.34" . "12.34") ("12.34e56" . "12.34e56") ("12.34E56" . "12.34E56")
+       ("12.34e+56" . "12.34e+56") ("12.34d-6" . "12.34d-6")
+       ("12.34D-6" . "12.34D-6") ("1." . "1.") (".1" . ".1") (".1e0" . ".1e0")
+       )))
+
+  (pass-if "C fixed-point literals"
+    (fold
+     (lambda (pair pass)
+       (and pass
+	    (with-input-from-string (car pair)
+	      (lambda ()
+		(let* ((p (read-c-num (read-char)))
+		       (t (and=> p car)) (r (and=> p cdr)))
+		  (and p (eq? t '$fixpt) (string=? r (cdr pair))))))))
+     #t
+     '(("0.25r" . "0.25r")
+       ("0.25ur" . "0.25ur")
+       ;;("0.25lr" . "0.25lr")
+       ;;("0.0078125HR" . "0.0078125HR")
+       ;;("1r" . "1r")
+       )))
+
+  (pass-if "C strings"
+    (fold
+     (lambda (pair pass)
+       (and pass
+            (string=?
+             (with-input-from-string (car pair)
+               (lambda () (or (and=> (read-c-string (read-char)) cdr) "")))
+	     (cdr pair))))
+     #t
+     '(("\"\\177\"" . "\x7f")
+       )))
+
+  ;; Check that comment ending in newline does not eat the newline.
+  (pass-if "C comments"
+    (with-input-from-string "//abc\ndef"
+      (lambda ()
+	(let* ((tp (read-comm-1 (read-char) #f))
+	       (ch (read-char)))
+	  (and (equal? tp '($code-comm . "abc"))
+	       (equal? ch #\newline))))))
+
+  ;; C99 number string to Scheme number string (which works w/ string->number)
+  (pass-if "C num to Scheme num (as strings)"
+    (fold
+     (lambda (pair pass)
+       (and pass (string=? (cnumstr->scm (car pair)) (cdr pair))))
+     #t
+     '(("0L" . "0") ("01l" . "#o1") ("0LL" . "0")
+       ("0xa" . "#xa") ("0b11" . "#b11")
+       ("0123" . "#o123") ("1234" . "1234") ("0.1e10" . "0.1e10"))))
+
+  )
+
+;; --- last line ---

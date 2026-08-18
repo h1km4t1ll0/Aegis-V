@@ -30,30 +30,39 @@
 
 #define SRAM_SIZE       0x17FFFF
 #define STACK_OFFSET    SRAM_SIZE
-#define PAYLOAD_OFFSET  0x80000
+/* Mes C + Scheme + nyacc + tcc sources are several MB. Stage2 must sit
+ * after the whole image; 8MB leaves headroom past the current files.pl. */
+#define PAYLOAD_OFFSET  0x800000
 
 #define IMAGE_SCAN_BASE     0x80000000
-#define IMAGE_SCAN_END      0x80900000
+#define IMAGE_SCAN_END      0x80800000
 
-#define PROC_BASE           0x80050000
-#define PROC_FIRST_RUNNABLE 0x80051000
-#define PROC_END            0x8006ffff
-#define FILE_NAME_BASE      0x80070000
-#define FILE_NAME_END       0x8007ffff
-#define STAGE2_BASE         0x80080000
-#define KERNEL_STACK_TOP    0x80090000
-#define OPEN_FILES_BASE     0x80090100
-#define OPEN_FILES_END      0x80090300
-#define ARGS_BLOCK_BASE     0x80098000
-#define FD_BASE             0x80100000
-#define FILE_DATA_BASE      0x80100400
+/* Image is loaded at 0x80000000 (boot + simon.hex0 + files.pl) and must not
+ * overlap stage2 or warmup. Do not warmup STAGE2: boot writes simon there. */
+#define STAGE2_BASE         0x80800000
+#define KERNEL_STACK_TOP    0x80810000
+#define OPEN_FILES_BASE     0x80810100
+#define OPEN_FILES_END      0x80812100
+#define OPEN_FILE_MAX_FD    256
+#define FD_BASE             0x80820000
+#define PROC_BASE           0x80900000
+#define PROC_FIRST_RUNNABLE 0x80901000
+#define PROC_END            0x8091ffff
+#define FILE_NAME_BASE      0x80920000
+#define FILE_NAME_END       0x8099ffff
+#define FILE_DATA_BASE      0x809A0000
+#define USER_CODE_BASE      0x82000000
+/* argc/argv live at SP (Linux ABI). Place them just below the heap so
+ * user stack can grow ~32MB down toward user code instead of 32KB. */
+#define ARGS_BLOCK_BASE     0x83FFF000
 #define HEAP_BASE           0x84000000
-#define HEAP_END            0x88000000
+/* QEMU -m 2G maps RAM through 0xFFFFFFFF. mes-m2 default arena is ~500MB. */
+#define HEAP_END            0xFFF00000
 
-#define EARLY_WARMUP_START  0x80050000
-#define EARLY_WARMUP_END    0x80200000
-#define WARMUP1_START       0x80050000
-#define WARMUP1_END         0x80200000
-#define WARMUP2_ENABLE      0
-#define WARMUP2_START       0
-#define WARMUP2_END         0
+#define EARLY_WARMUP_START  0x80900000
+#define EARLY_WARMUP_END    0x809A0000
+#define WARMUP1_START       0x80900000
+#define WARMUP1_END         0x809A0000
+#define WARMUP2_ENABLE      1
+#define WARMUP2_START       0x80810000
+#define WARMUP2_END         0x80900000

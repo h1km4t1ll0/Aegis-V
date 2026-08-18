@@ -1,0 +1,345 @@
+\input texinfo.tex
+@setfilename nx-devel.info
+@settitle Developing NYACC Extension Languages
+
+@copying
+Copyright (C) 2018 -- Matthew R. Wette.
+
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.  A
+copy of the license is included with the distribution as @file{COPYING.DOC}.
+@end copying
+
+@headings off
+@everyfooting @| @thispage @|
+
+@node Top
+@top Developing NYACC Extension Languages
+@format
+Matt Wette
+September 2018
+@end format
+
+@heading ideas
+
+In JS lexer, maybe double-newline should be ';'.  So in JS, we can parse
+@example
+TryStatement
+  : Try stmts Catch stmts Finally stmts
+  | Try stmts Catch stmts [';']
+@end example
+
+To be able to generate @code{set!}, @code{hash-set!},
+@code{vector-set!} etc.{} I like to ``catch'' the tree in the
+down stage of @code{foldts*-values}, using @code{sx-match} to convert
+the AST from
+@example
+(assign (obj-ref ,expr (ident ,name) ,rhs))
+@end example
+@noindent
+to
+@example
+(obj-assign ,expr ,name ,rhs))
+@end example
+@noindent
+This prevents @code{fD} from adding @code{name} into the symbol table.
+
+Rule: all N-languages should allow @code{#! ... !#} as a comment.
+and #L to end of line as a comment.
+
+Note: Guile reads language files with encoding always set to UTF-8.
+
+Note: Guile assumes reader/compiler will return EOF on end of input.
+
+Note: Extensions should allow identifiers to start with `$'.
+
+Note: If language functions have special variables the convention is
+to pass via keyword aruments.  For example, in javacript all functions
+accept the @code{#:this} keyword.  (I should add @code{#:nargin} etc.
+to matlab.)
+
+Question: Should associative arrays be indexed by symbols or strings?
+
+Idea: data model:
+@itemize
+@item scalar ints, double, string, (what about chars?)
+@item associative arrays (assoc): no integer indexes
+@item integer 1D (@code{vector}) arrays
+@item no integer 2D arrays (for now)
+@item double 1D and 2D (@code{array F64}) arrays
+@end itemize
+Questions:
+@itemize
+@item Should 1-D arrays be @code{array} or @code{vector}?
+@end itemize
+
+@heading Read, Parse and Compile
+
+A language may have two or three phases to get to lower level.
+The first is parsing which reads text and turns into the languages own
+intermediate form, typically for one the language compilers.  There
+may be an additional step using a parser, which converts output from
+the reader into something for the compiler.  Tree-IL works this way:
+it has an intermediate text form which can be generated using scheme
+list expressions and binary form using scheme records.
+
+@subheading Compiling a File 
+
+Define a joint is
+@enumerate
+@item javascript to tree-il
+@item tree-il to cps
+@item cps to bytecode
+@end enumerate
+
+The signature is
+@example
+compile exp env0 opts => exp env2 env1
+@end example
+for a chain of joints, compile-file will run the reader to get an
+expression then iterate on the elements of the joint, providing
+env1 as continuation to env0 in the next iteration.
+On iteration of the next expression env0 is env?
+
+Say the compilers are @code{comp:jvs->til} and @code{comp:til->byt}.
+(We will ignore options for now.)  Let's pretend that cps is the joint
+(even though tree-il is a possible joint).  We use ``mid'' to
+designate the joint.  Then the program that generate a bytecode file is
+@lisp
+(let*-values
+  ((jvs-c0) (jvs-def-env))
+  ;;
+  ((til-x1 til-e1 jvs-c1) (comp:jvs->til (read-jvs port jvs-c0) jvs-c0))
+  ((cps-x1 cps-e1 til-c1) (comp:til->cps til-x1 til-e1))
+  ;;
+  ((til-x2 til-e2 jvs-c2) (comp:jvs->til (read-jvs port jvs-c1) jvs-c1))
+  ((cps-x2 cps-e2 til-c2) (comp:til->cps til-x2 til-e2))
+  ;;
+  ((exps) (cps-joiner (list cps-x1 cps-x2) cps-e2)
+  ((byt byt-e5 bytcps-c1) (comp:cps->byt exps cps-e2))
+@end lisp
+This seems to say that a compiler can use it's own env but needs to
+pass out an env that can be used by lower levels.
+
+Note that if the top-level language is a joint, then the compiler
+will just read expressions, combine them and then send to the compiler
+in one shot.
+
+Note: at the command line the user directory is always passed, not
+the continuation returned from the previous execution.
+
+@subheading Converting Your SXML Tree to Tree-IL
+
+The NX languages use @code{foldts*-values} from @code{(sxml fold)}.
+The tree keeps track of an auxiliary dictionary, implemented as
+an asssociative list (a-list).  The function @code{foldts*-values}
+operates on a function (named @code{fD}) that analyzes SXML subtrees
+on the way down and a function (named @code{fU}) that builds Tree-IL
+trees on the way up.  If scope is pushed for some construct on the
+way down, it should be popped (from @code{kdict}) on the way up.
+
+Note that declarations usually must be processed on the way down, so
+that identifiers will be associated with the correct declarations.
+
+In @code{fD} we also process simple trees.  These cases usally
+include, for example, constants (e.g., @code{(float "12.3")}) and
+identifiers (e.g., @code{(ident "foo")}.
+
+@heading Common Procedures
+
+@deffn {Procedure} lookup name dict => (lexical ...)|(toplevel ...)|(@@@@ ...)
+where @var{name} is a string and @var{dict} is an a-list dictionary
+@end deffn
+
+For langauges that generate automatic definitions (e.g., by
+assignment) our technique is to top wrap top-level statements in
+a TIL @code{seq}-string to define variables if needed. Here is TIL code:
+@lisp
+(let (var) (,var) ((call (toplevel module-local-variable)
+		         (call (toplevel current-module))
+		         (const ,sym)))
+  (if (lexical var ,var) (void) (define ,sym (void))))
+@end lisp
+where @code{sym} is the symbol for which we want a toplevel slot
+assigned. The routine to generate this is called
+@code{make-toplevel-defcheck} and the routine which wraps a toplevel
+TIL expression with symbols appearing in our symbol table is called
+@code{add-topdefs}.  Right now this is in @file{matlab/compile-tree-il.scm}
+
+@deffn {Procedure} compile-tree-il exp env opts => exp env cenv
+On input @var{exp} is the SXML from our reader, @var{env} is ``an
+environment'', and @var{opts} is a keyword list of options.  The procedure
+returns three values: the compiled expression, the corresponding environment
+for the target for the compiled language, and a continuation environment
+for the next source tree.
+@end deffn
+
+@subheading Variable Declarations and Assignment
+
+There are languages (e.g., JavaScript, Tcl) where variables must be
+declared and other languages (e.g., Octave) where variables are
+declared when first used.
+
+In nx-languages the parser will typically emit symbols as a simple
+SXML element, e.g.{} @code{(ident "x")}.  When we see this pattern in
+@code{fD} we replace the symbol with a reference from the dictionary,
+as in @code{(lookup "x")}.
+
+When we see a variable declaration in @code{fD} we add the symbol to
+the dictionary (at the current scope).  If we know this variable has
+lexical scope we use @code{nx-add-lexical} and if toplevel we use
+@code{nx-add-toplevel}.  If the scope is unknown we use
+@code{nx-add-symbol} (which checks the scope for us).  The value added
+to the symbol table is either @code{(lexical @it{name} @it{gensym})}
+or @code{(toplevel @it{name})} depending on the scope.  Note that a
+call to @code{nx-add-lexical} will generate the gensym for us.
+
+When we see a variable reference in @code{fD} we lookup the symbol and
+replace the SXML, say @code{(ident "x")} with the dictionary entry,
+say @code{(lexical x x-123)}.  Since we have now processed the node
+we tell @code{foldts*-values} that we have done this.  Without
+processing the node would be returned as
+@example
+(values '(ident "x") '() dict)
+@end example
+@noindent
+Instead we return 
+@example
+(values '() '(lexical x x-123) dict)
+@end example
+
+@sp 1
+
+When we see a variable assignment in @code{fD} we will replace the
+assignment, which references an identifier with a specialized
+assignment that avoids @code{fD} performing the translation discussed
+above. So, for example, if @code{fD} sees
+@example
+(assn (ident "x") (float "13.5"))
+@end example
+@noindent
+when we morph so something we trap later:
+@example
+(var-assn "x" (float "13.5"))
+@end example
+@noindent
+In the case of assignment to an aggregate we perform a similar morph
+@example
+(assn (member (expr ...) (ident "x")) (float "13.5"))
+  =>
+(mem-assn (expr ...) "x" (float "13.5"))
+@end example
+
+@sp 1
+
+@subheading Function-Local Variables
+
+Most languages that require local variables to be declared before use.
+Our current strategy is to elevate push these to the top of the
+associated scope block.  For example,
+@example
+function foo() {
+  var a;
+  a = bar(1);
+  var b;
+  b = a + baz(2);
+  return b + 3;
+  }
+@end
+We treat this as if the code was written as
+@example
+function foo() {
+  var a, b;
+  a = bar(1);
+  b = a + baz(2);
+  return b + 3;
+  }
+@end
+THIS NEEDS WORK.  Recheck javascript implementation.
+
+In the case of languages which do not require declarations (e.g.,
+Octave), when we roll-up a function definition in @code{fU} we check
+the dictionary (aka symbol table) for the current scope and add a
+Tree-IL @code{let} structure for all of these.
+
+@subheading Top-Level Variables
+
+In the case of languages which do not require declarations (e.g.,
+Octave), when we return a top-level construct -- e.g., during
+interactive use -- we wrap the construct in a Tree-IL @code{seq}
+expression-chain that ensures the assigned variables are defined.  For
+example, the top-level construct was
+@example
+x = 13.5;
+@end example
+@noindent
+then we would effectively generate Tree-IL for the following Scheme
+expression:
+@example
+(begin
+  (define x (if (defined? 'x) x (if #f #f)))
+  (set! x 13.5))
+@end example
+@noindent
+
+@subheading Looping
+
+In @code{fD} we add lexical variable for the break and continue prompt tags:
+@lisp
+ ((for . ,rest)
+  (values tree '() (add-lexicals "break" "continue" (push-scope
+  dict))))
+@end lisp
+
+
+
+@heading Modules
+
+@subheading @file{system/base/compile}) 
+In the procedure @code{read-and-compile} which iterates on
+@code{read-and-parse} to read one expression at a time to
+@enumerate
+@item read-and-parse env port cenv => exp
+@item 
+@end enumerate
+
+We refer to ``from'' as ``top'' and ``to'' as ``bottom''.  For our
+example, javascript is at the top and bytecode is at the bottom.
+
+If the language spec defines a parser then read, is followed by parse.
+
+find-language-joint:
+This finds the highest level language that provides a means for joining
+expressions, and called this the ``joint.''  The reader will parse
+and compile one expression at a time to the joint, combine
+expressions, then compile the sequence to the bottom.
+
+We use reader-parser to refer to reader or reader, followed by parser,
+if the parser exists.
+
+language spec fields:
+@table
+@item reader
+@code{reader port env -> exp} reads from port and generates an expression
+@item parser
+@code{parser env -> env} converts reader expression to input for
+compiler; an example is tree-il which has ``external form'' that can
+be pretty-printed and ``internal form'' which is a record tree
+@item joiner
+@code{joiner exp-list -> exp} joins a list of expressions into a
+single expression.  In Scheme: (exp ...) -> (begin exp exp exp) so
+the joiner is @code{(cons 'begin exps)}.
+@end table
+
+On EOF the reader-parser should return 
+
+Signatures
+@example
+reader port cenv -> exp
+parser exp -> exp
+compiler 
+@end example
+
+@bye

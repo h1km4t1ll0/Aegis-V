@@ -4,6 +4,6 @@ DDR_ADDR := 0x40000000
 YOUR_RAW_BIN := image_simon_lichee.bin
 FULLFLASH_BIN := flash_me_lichee.bin
 WRAPPED_BIN := simon_wrapped_lichee.img
-UBOOT_SPL_BIN ?= u-boot-with-spl.bin
+UBOOT_SPL_BIN ?= firmware/u-boot-with-spl.bin
 UBOOT_IMAGE_NAME := SimonOS-Lichee
 SUPPORTS_FULLFLASH := 1

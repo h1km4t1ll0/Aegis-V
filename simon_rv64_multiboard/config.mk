@@ -1,7 +1,7 @@
 # ============================================================
 # Simon multi-board config
 #
-# To port Simon to another RISC-V board, do NOT edit src/*.S.
+# To port Simon to another RISC-V board, do NOT edit kernel/*.S.
 # Add two files instead:
 #   boards/<new_board>.mk   - build/load/fullflash settings
 #   boards/<new_board>.h    - UART, memory map, trap mode, watchdog
@@ -12,9 +12,9 @@
 BOARD ?= lichee_th1520_fullflash
 include boards/$(BOARD).mk
 
-BOOT_SRC := src/boot.S
-PAYLOAD_SRC := src/simon.S
-FILES_HEX0 ?= files.pl
+BOOT_SRC := kernel/boot.S
+PAYLOAD_SRC := kernel/simon.S
+FILES_HEX0 ?= build/files.pl
 
 TOOLCHAIN ?= clang
 CROSS_COMPILE ?= riscv64-unknown-elf-

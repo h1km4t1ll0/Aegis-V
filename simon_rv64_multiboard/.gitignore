@@ -1,0 +1,4 @@
+# Generated images and object files
+build/
+__pycache__/
+*.pyc

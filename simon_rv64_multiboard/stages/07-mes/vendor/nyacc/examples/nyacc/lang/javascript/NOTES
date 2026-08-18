@@ -1,0 +1,23 @@
+Copyright (C) 2015-2018 Matthew R. Wette
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without any warranty.
+
+java object model:
+https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Details_of_the_Object_Model
+
+new scope rules:
+Functions can have vars anywhere at function top level
+Blocks can only have lets at beginning
+In fU for functions, sweep through the function and find re-decls
+need (lookup-in-function to see if a repeated binding)
+
+
+function prototypes
+
+(js:function-prototype (make-object-property))
+(set! (js:function-prototype Foo) (lambda ....))
+(js:function-prototype Foo) => (lambda ...)
+

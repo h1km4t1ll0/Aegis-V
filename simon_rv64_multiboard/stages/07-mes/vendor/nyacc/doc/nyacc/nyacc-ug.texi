@@ -1,0 +1,1621 @@
+\input texinfo.tex
+@setfilename nyacc-ug.info
+@settitle Not Yet Another Compiler Compiler
+
+@copying
+Copyright (C) 2015-2019 -- Matthew R. Wette.
+
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.  A
+copy of the license is included with the distribution as @file{COPYING.DOC}.
+@end copying
+
+@macro nyacc
+@sc{NYACC}
+@end macro
+@c @alias NYACC = @sc{NYACC}
+
+@clear skip
+
+@dircategory The Algorithmic Language Scheme
+@direntry
+* NYACC User Guide: (nyacc).    The NYACC user's guide.
+@end direntry
+
+@titlepage
+@title Not Yet Another Compiler-Compiler
+@subtitle A LALR(1) Parser Generator Implemented in Guile
+@subtitle User's manual for NYACC version 1.00.2
+@author Matt Wette
+@end titlepage
+
+@ifnottex
+@node Top, Demonstration, (dir), (dir)
+@top NYACC User's Guide
+@end ifnottex
+
+@menu
+* Demonstration::
+* Parsing::
+* Translation::
+* Coding to the Compiler Tower::
+* Administrative::
+* TODOs::
+* References::
+@end menu
+
+@contents
+
+@node Demonstration,, Parsing, Top
+@chapter Demonstration
+
+A LALR(1) parser is a pushdown automata for parsing
+computer languages.  LALR parser generators like @nyacc{} have been
+around since the 1970's.  In @nyacc{} the automata, along with its
+auxiliary parameters (e.g., actions), is called a @emph{machine}.  The
+grammar is called the @emph{specification}.  The program that
+processes, driven by the machine, input tokens to generate a final
+output, or error, is the @emph{parser}.
+
+A more detailed explantion of how to use an LALR parser generator
+can be found in the Bison manual (see @ref{References}).
+
+@section A Simple Batch Calculator
+
+An easy way to introduce you to @nyacc{} is to work through a simple
+example.  Consider the following.  A similar example is in the file
+@file{calc.scm} in the subdirectory @code{examples/nyacc/lang/calc/}
+of the source distribution.  (To execute the file you need to source
+the file @file{env.sh} in the top-level sub-directory @file{examples}.)
+@example
+(use-modules (nyacc lalr))
+(use-modules (nyacc lex))
+(use-modules (nyacc parse))
+
+(define (next) (newline) (display "> ") (force-output))
+
+(define spec
+  (lalr-spec
+   (prec< (left "+" "-") (left "*" "/"))
+   (start prog)
+   (grammar
+    (prog
+     (stmt-list))
+    (stmt-list
+     (stmt)
+     (stmt-list "\n" stmt))
+    (stmt
+     ($empty ($$ (next)))
+     (expr ($$ (display $1) (next))))
+    (expr
+     (expr "+" expr ($$ (+ $1 $3)))
+     (expr "-" expr ($$ (- $1 $3)))
+     (expr "*" expr ($$ (* $1 $3)))
+     (expr "/" expr ($$ (/ $1 $3)))
+     ($fixed ($$ (string->number $1)))
+     ($float ($$ (string->number $1)))
+     ($ident ($$ (module-ref (current-module) (string->symbol $1))))
+     ("(" expr ")" ($$ $2))))))
+
+(define mach (make-lalr-machine spec))
+(define mtab (lalr-match-table mach))
+(define gen-lexer (make-lexer-generator mtab))
+(define raw-parse (make-lalr-parser mach))
+(define (parse) (raw-parse (gen-lexer)))
+
+(parse)
+@end example
+Here is an explanation of the above code:
+@enumerate
+@item
+The relevent modules are imported using Guile's @code{use-modules} syntax.
+@item
+The procedure @code{next} is used to generate a prompt to the user.
+@item
+The syntax form @code{lalr-spec} is used to generate a language
+specification from the grammar and options provided in the form.
+@item
+The @code{prec<} directive indicates that 
+the tokens appearing in the sequence of associativity directives
+should be interpreted in increasing order of precedence.  The
+associativity statements @code{left} indicate that the tokens have left
+associativity.  So, in this grammar @code{+}, @code{-}, @code{*}, and
+@code{/} are left associative, @code{*} and @code{/} have equal
+precedence, @code{+} and @code{-} have equal precedence, but @code{*}
+and @code{/} have higher precedence than @code{+} and @code{-}.
+@item
+The @code{start} directive indicates which left-hand symbol in the
+grammar is the starting symbol for the grammar.
+@item
+The @code{grammar} directive is used to specify the production rules.
+@itemize
+@item
+In the example above one left-hand side is associated with multiple
+right hand sides.  But this is not required.
+Multiple right-hand sides can be written for a single left-hand side.  
+@item
+Non-terminals are indicated using symbols (e.g., @code{expr}).
+@item
+Terminals are indicated using string literals (e.g.,@code{"+"}),
+character literals (e.g., @code{#\+}), quoted symbols
+(e.g., @code{'+}) or @nyacc{}reserved symbols, which always begin with
+@code{$}.  Reserved symbols used in this example are @code{$fixed} and
+@code{$float}.   Note that tokens or terminals do not need to be
+declared as in Bison or in the Guile module @code{(system base lalr)}.
+@item
+The reserved symbols @code{$fixed} and @code{$float} indicate
+unsigned integer and floating point number, respectively.  The 
+@nyacc{} procedures for generating lexical analyzers will emit this token
+when the corresponding numbers are detected in the input.
+@item
+Within the right-hand side of a production rule a @code{$$} form is
+used to specify an action associated with the rule.  Ordinarily, the action
+appears as the last element of a right-hand side, but mid-rule
+actions are possible.  Inside the @code{$$} form, the variables
+@code{$1}, @code{$2}, etc.@  refer to the symantic value of the
+corresponding item in the right hand side of the production rule.
+@item
+The expression returned by @code{lalr-spec} is an association list (a-list);
+you can peek at the internals using typical Scheme procedures for a-lists.
+@end itemize
+@item
+The the automaton (aka machine) @code{mach} is defined using the
+procedure @code{make-lalr-machine}, which returns an association list.
+The procedure does the bulk of the work to produce what is needed to
+generate a LALR(1) parser.  Separate procedures can be called to
+further compact tables and hash the automaton. @xref{Hashing and Compacting}
+@item
+One item needed is the @emph{match-table} this is the a-list that maps
+input character, sequences to be read by the lexical analyzer, to
+tokens, either symbols or integers, used by the parser.  The variable
+@code{mtab} is defined to be the machine's match-table.
+@item
+Next we generating a raw parser.  The generated procedure
+@code{raw-parser} takes one required argument, a lexical analyzer
+procecdure, and optional keyword arguments.
+@item
+The next task is to create a generator for lexical analyzers.  This is
+performed as follows: 
+@example
+(define gen-lexer (make-lexer-generator mtab))
+@end example
+Note that the above returns a generator for lexical analyzers: lexical
+analysis for a call to the parser may require maintaining internal
+state (e.g., line number, mode).  (Sorry, we now deviate from being
+purely function.  This could be fixed by using continuation passing
+style, but I digress.)  The procedure @code{make-lexer-generator} is
+imported from the module @code{(nyacc lex)}.  Optional arguments to
+@code{make-lexer-generator} allow the user to specify custom readers
+for identifiers, comments, numbers, etc.  @xref{lex} 
+@item
+We bring the above items together to provide a usable procedure for
+an interactive calculator.
+@example
+(next)
+(parse)
+@end example
+The lexical analyzer reads code from @code{(current-input-port)}.  If
+we want to run this on a string we would need to use
+@code{with-input-from-string} or equivalent.
+@xref{Input and Output,,,guile} 
+@item 
+And now we can run it:
+@example
+$ guile calc.scm
+...
+> 1 + 1
+2
+> 
+@end example
+@end enumerate
+
+If we execute the example file above we should get the following:
+@example
+$ guile calc1.scm
+2 + 2 => 4
+$
+@end example
+
+@section Generating a Language to Run in Guile
+
+One of the many cool features of Guile is that it provides a backend
+infrastructure for evaluation of multiple frontend languages.   
+The files @file{mach.scm}, @file{parser.scm} and @file{compiler.scm} in the
+@file{examples/nyacc/lang/calc} directory and @file{spec.scm} in the
+@file{examples/language/calc} directory implement our calculator within this
+Guile infrastructure.  You can run the calculator if you have sourced
+the @file{env.sh} file as described above.
+@example
+$ guile
+...
+scheme@@(guile-user)> ,L calc
+...
+Happy hacking with calc!  To switch back, type `,L scheme'.
+calc@@(guile-user)> (2 + 2)/(1 + 1)
+2
+calc@@(guile-user)> 
+@end example
+The evaluator uses SXML as the intermediate representation between the
+parser and compiler, which generates to Tree-IL.  See also the example
+in the directory @file{examples/language/javascript} and
+@file{examples/nyacc/lang/javascript} directories.  For details on the
+Guile backend see 
+
+@section Debugging Output
+
+The parser can provide debugging output with the appropriate keyword
+argument.  In @file{calc1.scm} there is a modified version of
+@code{calc1-eval} which will print out debugging info:
+@example
+(define (calc1-eval str)
+  (with-input-from-string str
+    (lambda () (raw-parser (gen-lexer) #:debug #t))))
+@end example
+@noindent
+To make use of this info you probably want to generate an output file
+as describe in Section @ref{Human Readable Output} which provides
+context for the debugging output.  The output looks like
+@example
+state 0, token "2"      => (shift . 3)
+state 3, token "+"      => (reduce . 5)
+state 0, token expr     => (shift . 4)
+state 4, token "+"      => (shift . 5)
+state 5, token "2"      => (shift . 3)
+state 3, token #<eof>   => (reduce . 5)
+state 5, token expr     => (shift . 14)
+state 14, token #<eof>  => (reduce . 1)
+state 0, token expr     => (shift . 4)
+state 4, token #<eof>   => (accept . 0)
+2 + 2 => 4
+@end example
+
+@c ==================================
+@node Parsing
+@chapter Parsing
+
+Most of the syntax and procecures for generating skelton parsers
+exported from the module @code{(nyacc lalr)}.  Other modules include
+@table @code
+@item (lalr lex)
+This module provides procedures for generating lexical analyzers.
+@item (lalr util)
+This module provides utilities used by the other modules.
+@end table
+
+
+@section The Specification
+@anchor{Specification}
+
+The syntax for generating specifications is @code{lalr-spec}.  As
+mentioned in the  previous chapter, the syntax generates an
+association list, or @dfn{a-list}. 
+
+@deffn {Syntax} lalr-spec grammar => a-list
+This routine reads a grammar in a scheme-like syntax and returns an a-list.
+The returned a-list is normally used as an input for
+@code{make-lalr-machine}.  The syntax is of the form
+@example
+(lalr-spec (@var{specifier} @dots{}) @dots{})
+@end example
+The order of the specifiers does not matter, but typically the
+@code{grammar} specifier occurs last.
+@end deffn
+
+The specifiers are
+@table @code
+@item notice
+This is used to push a comment string (e.g., copyright) into the
+resulting parser tables. 
+@item reserve
+This is a list of tokens which do not appear in the grammar but should
+be added to the match table. 
+@item prec<, prec>
+These specifiers are used to specify precedence and associativity symbols.
+@item expect
+This is the expected number of shift-reduce conflicts to occur.
+@item start
+This specifies the top-level starting non-terminal.
+@item alt-start
+This specifies alternative start symbols used in @code{restart-spec}.
+Its use prevents warning messages.
+@item grammar
+the grammar see below
+@end table
+
+@subheading The Notice
+
+The @code{notice} specifier allows one to provide a comment that will
+be carried into generated output files (e.g., parse tables generated
+by @code{write-lalr-tables}.  For example, if the spec' looks like
+@example
+(define spec
+  (lalr-spec
+   (notice "last edit: Mar 25, 2015")
+   @dots{}))
+@end example
+@noindent
+and one generates parse tables from the machine with
+@code{write-lalr-tables} then the resulting file will look like
+@example
+;; calctab.scm
+
+;; last edit: Mar 25, 2015
+
+(define calc-len-v
+ #(1 1 @dots{}
+ @dots{}
+@end example
+
+The notice is available using the expression
+@deffn {Procedure} pp-lalr-notice spec [port]
+Print the notice to the port, if specified, or @code{(current-output-port)}.
+@end deffn
+
+@subheading Reserving Tokens
+
+The @code{notice} specifier allows one to provide a comment that will
+be carried into generated output files (e.g., parse tables generated
+by @code{write-lalr-tables}.
+In the javascript parser we have added reserved keywords:
+@example
+   (reserve "abstract" "boolean" "byte" "char"
+            "class" "const" @dots{})
+@end example
+@noindent
+and this results in a generated match table (for a hashed machine)
+that looks like:
+@example
+    @dots{} ("abstract" . 86) ("boolean" . 87) ("byte" . 88)
+    ("char" . 89) ("class" . 90) ("const" . 91) @dots{}
+@end example
+
+@subheading Precedence and Associativity
+
+Recall the following specifier from the @code{calc1} example:
+@example
+   (prec< (left "+" "-") (left "*" "/"))
+@end example
+@noindent
+This declaration indicates presedence among the math operators.
+The @code{<} in @code{prec<} indicates that the precedence is in
+increasing order.  An equivalent specification would be as follows:
+@example
+   (prec> (left "*" "/") (left "+" "-"))
+@end example
+
+The precedence specification can be used along with @code{$prec} in
+the grammer to resolve shift-reduce or reduce-reduce conflicts in a 
+grammar.  The classical case is the if-then-else construct in C, where 
+a conflict occurs on the input
+@example
+if (expr1) if (expr2) bar(); else baz();
+@end example
+@noindent
+The above could be interpreted as
+@example
+if (expr1) @{ if (expr2) bar(); @} else baz();
+@end example
+@noindent
+or as
+@example
+if (expr1) @{ if (expr2) bar(); else baz(); @}
+@end example
+@noindent
+hence a conflict.  The language specification indicates the latter, so
+the parser should shift.  This rule can be specificed in a C parser
+as follows:
+@example
+  (lalr-spec
+   @dots{}
+   (prec< 'then "else")	       ; "then/else" SR-conflict resolution
+   @dots{}
+   (grammar
+    @dots{}
+    (selection-statement
+     ("if" "(" expression ")" statement ($prec 'then)
+      ($$ `(if ,$3 ,$5)))
+     ("if" "(" expression ")" statement "else" statement
+      ($$ `(if ,$3 ,$5 ,$7)))
+      @dots{}
+@end example
+@noindent
+It is important to note here that we use a quoted symbol @code{'then}
+rather than a string @code{"then"} as a dummy token.  If we would have
+used @code{"then"} as the dummy then the lex'er would return the associated
+token when @code{"then"} appears in the input and the C declaration 
+@example
+int then(int);
+@end example
+@noindent
+would produce a syntax error.
+
+@c @code{(prec< 'shift-on-XXX "XXX" 'reduce-on-XXX)}
+
+@subheading Expected Conflicts
+
+There are default rules for handling shift-reduce conflicts.  If you
+can live with these it is possible to inhibit the error messages
+generated by using the @code{expect} specifier, which takes as
+argument the expected number of shift-reduce conflicts:
+@example
+  (lalr-spec
+   (expect 3)
+   @dots{}
+@end example
+
+@subheading Grammar
+
+The grammer is a list of production rules.  Each production rule take
+the form
+@example
+(@dfn{lhs} (@dfn{rhs1} @dots{}) (@dfn{rhs2} @dots{}) @dots{})
+@end example
+@noindent
+where @dfn{lhs} is the left hand side is a non-termianl represented as
+a Scheme identifier.  Each right hand side is a list non-terminals,
+terminals, actions or proxies, represented by Scheme
+indentifiers, Scheme constants, @code{$$}-expressions or proxy
+expressions, respectively.  The terminals can be Scheme strings,
+character constants or quoted symbols, but not numbers.  For example,
+the following is the production rule for a C99 additive expression:
+@example
+(add-expr 
+ (mul-expr)
+ (add-expr "+" mul-expr ($$ `(add ,$1 ,$3)))
+ (add-expr "-" mul-expr ($$ `(sub ,$1 ,$3))))
+@end example
+Here @code{add-expr} and @code{mul-expr}
+are non-terminals and @code{"+"}, @code{"-"} are terminals and
+@code{($$ `(add ,$1 ,$3))} and @code{($$ `(sub ,$1 ,$3))} are actions.
+In the actions @code{$1} refers to the semantic value of the term
+@code{add-expr}.
+
+Symbols starting with @code{$} are reserved.  The following symbols
+have special meaning:
+All symbols starting with @code{$} are reserved.  Unused reserved symbols
+will likely not signal an error.  The following reserved symbols are in use:
+@table @code
+@item $prec
+This symbol is used in the right hand side of a production rule to
+indicate precedence (e.g., @code{($prec 'foo)}).
+@item $error
+This symbol is used in the right hand side of a production rule to
+indicate the rule is an error.  The associated parser will abort on
+this rule.
+@item $empty
+This symbol can be used in the right hand side of a production to
+indicate it has no terms.
+@item $ident
+This is emitted by the lexical analyzer to indicate an identifier.
+@item $fixed
+This is emitted by the lexical analyzer to indicate an unsigned integer.
+@item $float
+This is emitted by the lexical analyzer to indicate an unsigned
+floating point number.
+@item $string
+This is emitted by the lexical analyzer to indicate a string.
+@item $code-comm
+This is emitted by the lexical analyzer to indicate a comment starting
+after code appearing on a line.
+@item $lone-comm
+This is emitted by the lexical analyzer to indicate a comment starting
+on a line without preceeding code.
+@item $$, $$-ref, $$/ref
+These define an action in the right-hand side of a production.  They
+have the forms
+@example
+($$ @emph{body})
+($$-ref 'rule12)
+($$/ref 'rule12 @emph{body})
+@end example
+@noindent
+The @code{ref} forms are used to provide references for future use to
+support other (non-Scheme) languages, where the parser will be
+equipped to execute reduce-actions by reference (e.g. an associative array).
+@item $1, $2, ...
+These appear as arguments to user-supplied actions and will appear in
+the @emph{body} shown above.  The variables reference the symantic
+values of right-hand-side symbols of a production rule.  Note that
+mid-rule actions count here so
+@example
+ (lhs (l-expr ($$ (gen-op)) r-expr ($$ (list $2 $1 $3))))
+@end example
+@noindent
+generates a list from the return of @code{(gen-op)} followed by the
+semantic value associated with @code{l-expr} and then @code{r-expr}.
+@item $?, $*, $+
+These are (experimental) macros used for grammar specification.
+@example
+($? foo bar baz) => ``foo bar baz'' occurs never or once
+($* foo bar baz) => ``foo bar baz'' occurs zero or more times
+($+ foo bar baz) => ``foo bar baz'' occurs one or more times
+@end example
+@noindent
+However, these have hardcoded actions and are considered to be,
+in current form, unattractive for practical use.
+@end table
+
+In addition, the following reserved symbols may appear in output files:
+@table @code
+@item $chlit
+This is emitted by the lexical analyzer to indicate a character
+literal.
+@item $start
+This is used in the machine specification to indicate the production
+rule for starting the grammar.
+@item $end
+This is emitted by the lexical analysis to indicate end of input and
+appears in the machine to catch the end of input.
+@item $P1, $P2, @dots{}
+Symbols of the form @code{$P1}, @code{$P2},... are as symbols for
+proxy productions (e.g., for mid-rule actions).  For example, the
+production rule
+@example
+(lhs (ex1 ($$ (gen-x)) ex2 ex3) ($$ (list $1 $2 $3 $4)))
+@end example
+@noindent
+will result in the internal p-rules
+@example
+(lhs (ex1 $P1 ex2 ex3) ($$ (list $1 $2 $3 $4)))
+($P1 ($empty ($$ (gen-x))))
+@end example
+@item $default
+This is used in the generated parser to indicate a default action.
+@end table
+@c $error
+
+@subheading Recovery from Syntax Errors
+@anchor{Recovery from Syntax Errors}
+
+The grammar specification allows the user to handle some syntax
+errors.  This allows parsing to continue.  The behavior is similar
+to parser generators like @emph{yacc} or @emph{bison}.  The following
+production rule-list allows the user to trap an error.
+@example
+(line
+  ("\n")
+  (exp "\n")
+  ($error "\n"))
+@end example
+@noindent
+If the current input token does not match the grammar, then the parser
+will skip input tokens until a @code{"\n"} is read.  The default
+behavior is to generate an error message: @emph{"syntax error"}.
+To provide a user-defined handler just add an action for the rule:
+@example
+(line
+  ("\n")
+  (exp "\n")
+  ($error "\n" ($$ (format #t "line error\n"))))
+@end example
+@noindent
+Note that if the action is not at the end of the rule then the default
+recovery action (@emph{"syntax error"}) will be executed.
+
+@section Parsing a Sublanguage of a Specification
+@anchor{sublanguage}
+
+Say you have a @nyacc{} specification @code{cspec} for the C language
+and you want to generate a machine for parsing C expressions.  You can
+do this using @code{restart-spec}:
+@example
+(define cxspec (restart-spec cspec 'expression))
+(define cxmach (make-lalr-machine cxspec))
+@end example
+
+@section Generating the Machine
+@anchor{Parser}
+
+@deffn {Procedure} make-lalr-machine spec => a-list
+Given a specification generated by @code{lalr-spec} this procecure
+generates an a-list which contains the data required to implement a
+parser generated with, for example, @code{make-lalr-parser}.
+@end deffn
+
+The generated a-list includes the following keys:
+@table @code
+@item pat-v
+a vector of parse action procecures
+@item ref-v
+a vector of parse action references (for supporting other languages)
+@item len-v
+a vector of p-rule lengths
+@item rto-v
+a vector of lhs symbols (``reduce to'' symbols)
+@item lhs-v
+a vector of left hand side symbols
+@item rhs-v
+a vector of vectors of right hand side symbols
+@item kis-v
+a vector of itemsets
+@end table
+
+@subheading Using Hashed Tables
+
+The lexical analyzer returns tokens to the parser.  The parser
+executes state transitions based on these tokens.  When we build a
+lexical analyzer (via @code{make-lexer}) we provide a list of strings
+to detect along with associated tokens to return to the parser.  By
+default the tokens returned are symbols or characters.  But these
+could as well be integers.  Also, the parser uses symbols to represent
+non-terminals, which are also used to trigger state transitions.  We
+could use integers instead of symbols and characters by mapping the
+tokens to integers.  This makes the parser more efficient.  The tokens
+we are talking about include
+@enumerate
+@item the @code{$end} marker
+@item identifiers (using the symbolic token @code{$ident}
+@item non-negative integers (using the symbolic token @code{$fixed})
+@item non-negative floats (using the symbolic token @code{$float})
+@item @code{$accept}
+@item @code{$default}
+@item @code{$error}
+@end enumerate
+
+For the hash table we use positive integers for terminals and negative
+integers for non-terminals.  To apply such a hash table we perform the
+following: 
+@enumerate
+@item
+From the spec's list of terminals (aka tokens), generate a list of
+terminal to integer pairs (and vice versa).
+@item
+From the spec's list of non-terminals generate a list of symbols
+to integers and vice versa.
+@item
+Go through the parser-action table and convert symbols and characters
+to integers.
+@item
+Go through the token list passed to the lexical analyzer and replace
+symbols and characters with integers.
+@end enumerate
+
+Note that the parser is hardcoded to assume that the phony token for the
+default (reduce) action is @code{'$default} for unhashed machine or
+@code{1} for a hashed machine.
+
+The actions that the parser executes based on these are @i{shift}, @i{reduce}
+and @i{accept}.  When a shift occurs, the parser must transition to a
+new state.  We can encode the parser transitions using integers.
+@enumerate
+@item
+If positive, shift and go to the integer state.
+@item
+If negative, reduce by the additive inverse of the integer action.
+@item
+If zero, accept and return.
+@end enumerate
+
+The @nyacc{} procedure to convert a machine to a hashed-machine is
+@code{hashify-machine}.
+
+@deffn {Procedure} hashify-machine mach => mach
+Convert machine to use integers instead of symbols.  The match table
+will change from
+@example
+("abc" . 'abc)
+@end example
+@noindent
+to
+@example
+("abc" . 2)
+@end example
+@noindent
+and the pax will change from
+@example
+("abc" . (reduce . 1))
+@end example
+@noindent
+to
+@example
+("abc" . 2)
+@end example
+@end deffn
+
+@deffn {Procedure} machine-hashed? mach => #t|#f
+Indicate if the machine has been hashed.
+@end deffn
+
+@subheading Compacting Machine Tables
+
+@deffn {Procedure} compact-machine mach [#:keep 3] [#:keepers '()] => mach
+A "filter" to compact the parse table.  For each state this will replace
+the most populus set of reductions of the same production rule with a
+default production.  However, reductions triggered by user-specified keepers
+and the default keepers -- @code{'$error}, @code{'$end}, @code{'$lone-comm}
+and @code{'$lone-comm} are not counted.  The parser will want to treat
+errors and comments separately so that they can be trapped (e.g.,
+unaccounted comments are skipped).
+@end deffn
+
+
+@section The Match Table
+@anchor{match table}
+
+In some parser generators one declares terminals in the grammar file
+and the generator will provide an include file providing the list of
+terminals along with the associated ``hash codes''.  In @nyacc{} the
+terminals are detected in the grammar as non-identifiers: strings
+(e.g., @code{"for"}), symbols (e.g., @code{'$ident}) or characters
+(e.g., @code{#\+}).   The machine generation phase of the parser 
+generates a match table which is an a-list of these objects along with
+the token code.  These codes are what the lexical analyzer should return.
+In the end we have
+@itemize
+@item
+The user specifies the grammar with terminals in natural form
+(e.g., @code{"for"}).
+@item
+The parser generator internalizes these to symbols or integers, and generates
+an a-list, the match table,  of (natural form, internal form).
+@item
+The programmer provides the match table to the procedure that builds 
+a lexical analyzer generator (e.g., @code{make-lexer-generator}).
+@item
+The lexical analyzer uses this table to associate strings in the input
+with entries in the match table.   In the case of keywords the keys will
+appear as strings (e.g., @code{for}), whereas in the case of special items,
+processed in the lexical analyzer by readers (e.g., @code{read-num}), the
+keys will be symbols (e.g., @code{'$float}).
+@item
+The lexical analyzer returns pairs in the form (internal form, natural form)
+to the parser.  Note the reflexive behavior of the lexical analyzer.  It
+was built with pairs of the form (natural form, internal form) and returns
+pairs of the form (internal form, natural form).
+@end itemize
+
+The symbol for the default transition is @code{'$default}.  For
+hashified machines this is translated to the integer @code{1}.
+
+@section Constructing Lexical Analyzers
+@anchor{lex}
+
+The @code{lex} module provides a set of procedures to build lexical
+analyzers.  The approach is to first build a set of @dfn{readers} for 
+different types of tokens (e.g., numbers, identifiers, character
+sequences) and then process input characters (or code points) through
+the procedures.  The signature of most readers is the following:
+@example
+(reader ch) => #f | (@emph{type} . @emph{value})
+@end example
+@noindent
+If the reader fails to read a token then @code{#f} is returned.  If
+the reader reads more characters from input and fails, then it will
+push back characters.  So, the basic structure of a lexical analyzer
+is
+@example
+(lambda ()
+  (let iter ((ch (get-char)))
+    (cond
+     ((eof-object? ch) '($end . ""))
+     ((whitespace-reader ch) (iter (read-char)))
+     ((comment-reader ch) (iter (read-char)))
+     ((number-reader ch))
+     ((keyword-reader ch))
+     ((ident-reader ch))
+     @dots{}
+     (else (error)))))
+@end example
+@noindent
+The types of readers used are
+@table @asis
+@item ident-reader
+reads an identifier
+@item num-reader
+reads a number
+@item string-reader
+reads a string literal
+@item chlit-reader
+reads a character literal
+@item comm-reader
+reads a comment
+@item comm-skipper
+same as comm-reader
+@item chseq-reader
+a reader for a sequence of characters (e.g., @code{+=})
+@end table
+Note that some of our parsers (e.g., the C99 parser) is crafted to
+keep some comments in the output syntax tree.  So comments may be
+passed to the parser or skipped, hence the ``skipper''.
+
+The Lex Module does not provide lexical analyzers (lex'ers), but
+lexical analyzer generator generators.  The rationale behind this is as
+follows.  A lexical analyzer may have state (e.g., beginning of line
+state for languages where newline is not whitespace).  In addition,
+our generator uses a default set of readers, but allows the caller to
+specify other readers.  Or, if the user prefers, lex'ers can be rolled
+from provided readers.  Now we introduce our lex'er generator generator:
+
+@deffn {Procedure} make-lexer-generator match-table [options] => generator
+Returns a lex'er generator from the match table and options.  The
+options are
+@table @code
+@item #:ident-reader reader
+Use the provided reader for reading identifiers.  The default is a C
+language ident reader, generated from
+@example
+(make-ident-reader c:if c:ir)
+@end example
+@item #:num-reader @var{reader}
+Use the provided number reader.
+@item #:string-reader @var{reader}
+Use the provided reader for string literals.
+@item #:chlit-reader @var{reader}
+Use the provide charater literal reader.  The default is for C. So,
+for example the letter `a' is represented as @code{'a'}.
+@item #:comm-reader @var{reader}
+Use the provided comment reader to pass comments to the parser.
+@item #:comm-skipper @var{reader}
+Use the provided comment reader, but throw the token away.  The
+default for this is @code{#f}.
+@item space-chars @var{string}
+not a reader but a string containing the whitespace characters (fix this)
+@end table
+@example
+(define gen-lexer (make-lexer-generator #:ident-reader my-id-rdr))
+(with-input-from-file "foo" (parse (gen-lexer)))
+@end example
+(Minor note: The @var{ident-reader} will be used to read ident-like
+keywords from the match table.)
+@end deffn
+
+@deffn {Procedure} make-space-skipper chset => proc
+This routine will generate a reader to skip whitespace.
+@end deffn
+
+@deffn {Procedure} skip-c-space ch => #f|#t
+If @code{ch} is C whitespace, skip all spaces, then return @code{#t},
+else return @code{#f}.
+@end deffn
+
+@deffn {Procedure} make-ident-reader cs-first cs-rest => ch -> #f|string
+For identifiers, given the char-set for first character and the char-set
+for following characters, return a return a reader for identifiers.
+The reader takes a character as input and returns @code{#f} or @code{string}.
+This will generate exception on @code{#<eof>}.
+@end deffn
+
+@deffn {Procedure} read-c-ident ch => #f|string
+If ident pointer at following char, else (if #f) ch still last-read.
+@end deffn
+
+@deffn {Procedure} make-ident-like-p ident-reader
+Generate a predicate, from a reader, that determines if a string qualifies
+as an identifier.
+@end deffn
+
+@deffn {Procedure} like-c-ident? ch 
+Determine if a string qualifies as a C identifier.
+@end deffn
+
+@deffn {Procedure} make-string-reader delim
+Generate a reader that uses @code{delim} as delimiter for strings.
+TODO: need to handle matlab-type strings.
+TODO: need to handle multiple delim's (like python)
+@end deffn
+
+@deffn {Procedure} read-oct ch => "0123"|#f
+Read octal number.
+@end deffn
+
+@deffn {Procedure} read-hex ch => "0x7f"|#f
+Read octal number.
+@end deffn
+
+@deffn {Procedure} read-c-string ch => ($string . "foo")
+Read a C-code string.  Output to code is @code{write} not @code{display}.
+Return #f if @var{ch} is not @code{"}. This reader does not yet read
+trigraphs.
+@end deffn
+
+@deffn {Procedure} make-chlit-reader
+Generate a reader for character literals. NOT DONE.
+For C, this reads @code{'c'} or @code{'\n'}.
+@end deffn
+
+@deffn {Procedure} read-c-chlit ch
+@example
+... 'c' ... => (read-c-chlit #\') => '($ch-lit . #\c)
+@end example
+@end deffn
+
+@deffn {Procedure} make-num-reader => (proc ch) => output
+Generates a procedure to read C numbers where @var{output} is of the form 
+@code{#f}, @code{($fixed . "1")} or @code{($float . "1.0")}
+This routine will clean up floats by adding "0" before or after dot.
+@end deffn
+
+@deffn {Procedure} cnumstr->scm C99-str => scm-str
+Convert C number-string (e.g, @code{0x123LL}) to Scheme numbers-string
+(e.g., @code{#x123}).
+@end deffn
+
+@deffn {Procedure} read-c-num ch => #f|string
+Reader for unsigned numbers as used in C (or close to it).
+@end deffn
+
+@deffn {Procedure} make-chseq-reader strtab
+Given alist of pairs (string, token) return a function that eats chars
+until (token . string) is returned or @code{#f} if no match is found.
+@end deffn
+
+@deffn {Procedure} make-comm-reader comm-table [#:eat-newline #t] => \
+  ch bol -> ('$code-comm "..")|('$lone-comm "..")|#f
+comm-table is list of cons for (start . end) comment.
+e.g. ("--" . "\n") ("/*" . "*/")
+test with "/* hello **/"
+If @code{eat-newline} is specified as true then for read comments 
+ending with a newline a newline swallowed with the comment.
+Note: assumes backslash is never part of the end
+@end deffn
+
+@subsubheading Rolling Your Own Lex'er
+
+The following routines are provided for rolling your own lexical
+analyzer generator.  An example is provided in the file
+@file{examples/nyacc/lang/matlab}.
+
+@deffn {Procedure} filter-mt p? al => al
+Filter match-table based on cars of al.
+@end deffn
+
+@deffn {Procedure} remove-mt p? al => al
+Remove match-table based on cars of al.
+@end deffn
+
+@deffn {Procedure} map-mt f al => al
+Map cars of al.
+@end deffn
+
+@deffn {Procedure} eval-reader reader string => result
+For test and debug, this procedure will evaluate a reader on a string.
+A reader is a procedure that accepts a single character argument intended
+to match a specific character sequence.  A reader will read more characters
+by evaluating @code{read-char} until it matches or fails.  If it fails, it
+will pushback all characters read via @code{read-char} and return @code{#f}.
+If it succeeds the input pointer will be at the position following the
+last matched character.
+@end deffn
+
+
+@section The Parser-Lex'er Interface
+@anchor{parser-lexer}
+
+Sometimes LALR(1) parsers must be equipped with methods to parse
+non-context free grammars.  With respect to typenames, C is not
+context free.  Consider the following example.
+@example
+typedef int foo_t;
+foo_t x;
+@end example
+@noindent
+The lexical analyzer must identify the first occurance of @code{foo_t}
+as an identifier and the second occurance of @code{foo_t} as a
+typename.  This can be accomplished by keeping a list of typenames in
+the parent environment to the parser and lexical analyzer.  In the
+parser, when the first statement is parsed, an action could declare
+@code{foo_t} to now be a typename.  In the lexical analyzer, as
+tokens that look like identifers are parsed they are checked against
+the list of typenames and if a match is found, @code{'typename} is
+returned, otherwise @code{$ident} is returned.
+
+Another example of this handshaking is used in the JavaScript parser.
+The language allows newline as a statement terminator, but it must
+be prevented in certain places, for example between @code{++} and
+an expression in the post-increment operator.  We handle this using
+a mid-rule action to tell the lexer to skip newline if that is the
+next token.
+@example
+  (LeftHandSideExpression ($$ (NSI)) "++" ($$ `(post-inc $1)))
+@end example
+@noindent
+The procedure @code{NSI} in the lex'er is as follows:
+@example
+(define (NSI) ;; no semicolon insertion
+  (fluid-set! *insert-semi* #f))
+@end example
+@noindent
+and the newline reader in the lex'er acts as follows:
+@example
+  @dots{}
+  ((eqv? ch #\newline)
+   (if (fluid-ref *insert-semi*)
+       (cons semicolon ";")
+       (iter (read-char))))
+  @dots{}
+@end example
+
+@section Parser Tables
+@anchor{Parser Tables}
+
+Note that generating a parser requires a machine argument.  It is
+possible to export the machine to a pair of files and later regenerate
+enough info to create a parser from the tables saved in the machine.
+
+For example, constant tables for a machine can be generated
+using @nyacc{} procedures as follows:
+@example
+(write-lalr-actions calc-mach "calc-act.scm" #:prefix "calc-")
+(write-lalr-tables calc-mach "calc-tab.scm" #:prefix "calc-")
+@end example
+This saves the variable definition for @code{calc-act-v} to the
+file @file{calc-act.scm} and variable definitions for the following
+to the file @file{calc-tab.scm}:
+@table @code
+@item calc-len-v
+@item calc-pat-v
+@item calc-rto-v
+@item calc-mtab
+@item calc-tables
+@end table
+The variable @code{calc-act-v} is a vector of procedures associated with
+each of the production rules, to be executed as the associated
+production ruled is reduced in parsing.  The procedures can be
+modified without editing the grammar file and re-executing
+@code{lalr-spec} and @code{make-lalr-machine}.
+
+To create a parser from the generated tables, one can write the
+following code:
+@example
+(include "calc-tab.scm")
+(include "calc-act.scm")
+(define raw-parser (make-lalr-parser (acons 'act-v calc-act-v calc-tables)))
+@end example
+@noindent
+See the example code in @file{examples/nyacc/lang/calc/parser.scm} for
+more detail. 
+
+@section Hashing and Compacting
+@anchor{Hashing and Compacting}
+
+The @nyacc{} procedure @code{compact-machine} will compact the parse
+tables generated by @code{make-lalr-machine}.
+That is, if multiple tokens generate the same transition, then these
+will be combined into a single @emph{default} transition.
+Ordinarily @nyacc{} will expect symbols to be emitted from the lexical
+analyzer.  To use integers instead, use the procedure
+@code{hashify-machine}.  One can, of course, use both procedures:
+@example
+(define calc-mach
+  (compact-machine
+   (hashify-machine
+     (make-lalr-machine calc-spec))))
+@end example
+
+@deffn {Procedure} machine-compacted? mach => #t|#f
+Indicate if the machine has been compacted.
+@end deffn
+     
+@section Exporting Parsers
+@nyacc{} provides routines for exporting @nyacc{} grammar
+specifications to other LALR parser generators.
+
+The Bison exporter uses the following rules:
+@itemize
+@item
+Terminals expressed as strings which look like C identifiers are
+converted to symbols of all capitals.  For example @code{"for"} is
+converted to @code{FOR}.
+@item
+Strings which are not like C identifiers and are of length 1 are
+converted to characters.  For example, @code{"+"} is converted to @code{'+'}.
+@item
+Characters are converted to C characters.
+For example, @code{#\!} is converted to @code{'!'}.
+@item
+Multi-character strings that do not look like identifiers are
+converted to symbols of the form @code{ChSeq_@i{i}_@i{j}_@i{k}} where
+@i{i}, @i{j} and @i{k} are decimal representations of the character
+code.  For example @code{"+="} is converted to @code{ChSeq_43_61}.
+@item
+Terminals expressed as symbols are converted as-is but @code{$} and @code{-}
+are replaced with @code{_}.
+@end itemize
+
+This functionality has not been worked for a while so I suspect there
+is a chance it does not work anymore.
+
+@section Debugging
+@anchor {Debugging}
+
+The provided parsers are able to generate debugging information.
+
+@subheading Human Readable Output
+@anchor{Human Readable Output}
+
+You can generate text files which provide human-readable forms of
+the grammar specification and resulting automaton, akin to what you
+might get with bison using the `-r' flag.
+@example
+(with-output-to-file "calc.out"
+  (lambda ()
+    (pp-lalr-grammar calc1-mach)
+    (pp-lalr-machine calc1-mach)))
+@end example
+
+The above code will generate something that looks like 
+@example
+0 $start => prog
+1 prog => stmt-list
+2 stmt-list => stmt
+3 stmt-list => stmt-list stmt
+4 stmt => "\n"
+5 stmt => expr "\n"
+6 stmt => assn "\n"
+7 expr => expr "+" expr
+8 expr => expr "-" expr
+9 expr => expr "*" expr
+10 expr => expr "/" expr
+11 expr => '$fixed
+12 expr => '$float
+13 expr => '$ident
+14 expr => "(" expr ")"
+15 assn => '$ident "=" expr
+
+0:	$start => . prog
+	prog => . stmt-list
+	stmt-list => . stmt
+	stmt-list => . stmt-list stmt
+	stmt => . "\n"
+	stmt => . expr "\n"
+	stmt => . assn "\n"
+	expr => . expr "+" expr
+	expr => . expr "-" expr
+	expr => . expr "*" expr
+	expr => . expr "/" expr
+	expr => . '$fixed
+	expr => . '$float
+	expr => . '$ident
+	expr => . "(" expr ")"
+	assn => . '$ident "=" expr
+		"(" => shift 1
+		'$ident => shift 2
+		'$float => shift 3
+		'$fixed => shift 4
+		assn => shift 5
+		expr => shift 6
+		"\n" => shift 7
+		stmt => shift 8
+		stmt-list => shift 9
+		prog => shift 10
+
+...
+
+26:	expr => expr . "/" expr
+	expr => expr . "*" expr
+	expr => expr . "-" expr
+	expr => expr . "+" expr
+	expr => expr "+" expr .
+		"*" => shift 15
+		"/" => shift 16
+		$default => reduce 7
+		["+" => shift 13] REMOVED by associativity
+		["-" => shift 14] REMOVED by associativity
+		["*" => reduce 7] REMOVED by precedence
+		["/" => reduce 7] REMOVED by precedence
+@end example
+
+@subheading Tracing Parsing at Run-Time
+
+The parsers generted by @nyacc{} accept an optional keyword argument
+@code{#:debug}.  When @code{#t} is passed to this argument then the
+parser will display shift and reduce actions as it executes.  The
+calculator demo under the examples directory has an option (in
+@file{calc.scm}) to do this.  Here is what the output looks like
+(with the displayed result edited out).
+@example
+> 1 + 2
+state 0, token "1"	=> shift, goto 4
+state 4, token "+"	=> reduce 11
+state 0, token expr	=> shift, goto 6
+state 6, token "+"	=> shift, goto 11
+state 11, token "2"	=> shift, goto 4
+state 4, token "\n"	=> reduce 11
+state 11, token expr	=> shift, goto 23
+state 23, token "\n"	=> reduce 7
+state 0, token expr	=> shift, goto 6
+state 6, token "\n"	=> reduce 5
+state 0, token stmt	=> shift, goto 7
+state 7, token "\n"	=> reduce 2
+state 0, token stmt-list	=> shift, goto 8
+state 8, token "\n"	=> shift, goto 10
+@end example
+Currently, when parsers are hashed (using @code{hashify-machine} the
+non-terminals (e.g., @code{expr} above) are reported as integers.
+
+@c ==================================
+@node Translation
+@chapter Translation
+
+In this chapter we present procedures for generating syntax trees in a
+uniform form.  This format, based on SXML, may use more cons cells
+than other formats but upon use you will see that it is easy to
+produce code in the parser, and one can use all the processing tools
+that have been written for SXML (e.g., @code{(sxml match)} @code{(sxml
+fold)}. 
+
+The syntax of SXML trees is simple:
+@example
+expr => (tag item @dots{}) | (tag (@@ attr @dots{}) item @dots{})
+item => string | expr
+attr => (tag . string)
+@end example
+@noindent
+where tag names cannot contain the characters
+@quotation
+@code{(} @code{)} @code{"} @code{'} @code{`} @code{,} @code{;}
+@code{?} @code{>} @code{<} @code{[} @code{]} @code{~} @code{=}
+@code{!} @code{#} @code{$} @code{%} @code{&} @code{*} @code{+}
+@code{/} @code{\} @code{@@} @code{^} @code{|} @code{@{} @code{@}}
+@end quotation
+@noindent
+and cannot begin with @code{-}, @code{.} or a numeric digit.
+
+For example our Javascript parser given the input
+@example
+function foo(x, y) @{
+  return x + y;
+@}
+@end example
+@noindent
+will produce the following syntax tree:
+@example
+(Program
+  (SourceElements
+    (FunctionDeclaration
+      (Identifier "foo")
+      (FormalParameterList
+        (Identifier "x")
+        (Identifier "y"))
+      (SourceElements
+        (EmptyStatement)
+        (ReturnStatement
+          (add (PrimaryExpression (Identifier "x"))
+               (PrimaryExpression (Identifier "y"))))
+        (EmptyStatement)))
+    (EmptyStatement)))
+@end example
+@noindent
+And by the way, put through our tree-il compiler, which uses
+@code{foldts*-values} from the module @code{(sxml fold)} we get
+@example
+(begin
+  (define foo
+    (lambda ((name . foo))
+      (lambda-case
+        ((() #f @@args #f () (JS~5575))
+         (prompt
+           (const return)
+           (begin
+             (abort (const return)
+                    ((apply (@@@@ (nyacc lang javascript jslib) JS:+)
+                            (apply (toplevel list-ref)
+                                   (lexical @@args JS~5575)
+                                   (const 0))
+                            (apply (toplevel list-ref)
+                                   (lexical @@args JS~5575)
+                                   (const 1))))
+                    (const ())))
+           (lambda-case
+             (((tag val) #f #f #f () (JS~5576 JS~5577))
+              (lexical val JS~5577)))))))))
+@end example
+
+@c attributed grammars
+
+@section Tagged Lists
+@anchor{Tagged Lists}
+
+Paring actions in @nyacc{} can use tagged-lists from the module
+@code{(nyacc lang util)} to help build SXML trees efficiently.
+Building a statement list for a program might go as follows:
+@example
+  (program
+   (stmt-list ($$ `(program ,(tl->list $1)))))
+  (stmt-list
+   (stmt ($$ (make-tl 'stmt-list $1)))
+   (stmt-list stmt ($$ (tl-append $1 $2))))
+@end example
+@noindent
+The sequence of calls to the @code{tl-} routines goes as follows:
+@table @code
+@item (make-tl 'stmt-list)
+Generate a tagged list with tag @code{'stmt-list}.
+@item (tl-append $1 $2)
+Append item @code{$2} (not a list) to the tagged-list @code{$1}.
+@item (tl->list $1)
+Convert the tagged-list @code{$1} to a list.  It will be of the form
+@example
+'(stmt-list (@emph{stmt} @dots{}) (@emph{stmt} @dots{}) @dots{})
+@end example
+@noindent
+The first element of the
+list will be the tag @code{'stmt-list}.  If attributes were added, the
+list of attributes will be the second element of the list.  
+@end table
+
+The following procedures are provided by the module @code{(nyacc lang util)}:
+
+@deffn {Procedure} make-tl tag [item item ...]
+Create a tagged-list structure for tag @var{tag}.  Any number of
+additional items can be added.
+@end deffn
+
+@deffn {Procedure} tl->list tl
+Convert a tagged list structure to a list.  This collects added attributes
+and puts them right after the (leading) tag, resulting in something like
+@example
+(<tag> (@@ <attr>) <item> @dots{})
+@end example
+@end deffn
+
+@deffn {Procedure} tl-insert tl item
+Insert item at front of tagged list (but after tag).
+@end deffn
+
+@deffn {Procedure} tl-append tl item ...
+Append items at end of tagged list.
+@end deffn
+
+@deffn {Procedure} tl-extend tl item-l
+Extend with a list of items.
+@end deffn
+
+@deffn {Procedure} tl-extend! tl item-l
+Extend with a list of items.  Uses @code{set-cdr!}.
+@end deffn
+
+@deffn {Procedure} tl+attr tl key val)
+Add an attribute to a tagged list.  Return the tl.
+@example
+(tl+attr tl 'type "int")
+@end example
+@end deffn
+
+@deffn {Procedure} tl-merge tl tl1
+Merge guts of phony-tl @code{tl1} into @code{tl}.
+@end deffn
+
+
+@section Working with SXML Based Parse Trees
+@anchor{SXML Parse Trees}
+
+To work with the trees described in the last section use
+@example
+(sx-ref tree 1)
+(sx-attr tree)
+(sx-attr-ref tree 'item)
+(sx-tail tree 2)
+@end example
+
+@deffn {Procedure} sx-ref sx ix => item
+Reference the @code{ix}-th element of the list, not counting the optional
+attributes item.  If the list is shorter than the index, return @code{#f}.
+@example
+(sx-ref '(abc "def") 1) => "def"
+(sx-ref '(abc (@@ (foo "1")) "def") 1) => "def"
+@end example
+@end deffn
+
+@deffn {Procedure} sx-tag sx => tag
+Return the tag for a tree
+@end deffn
+
+@deffn {Procedure} sx-cons* tag (attr|#f)? ... => sx
+@deffnx {Procedure} sx-list tag (attr|#f)? ... => sx
+Generate the tag and the attr list if it exists.  Note that
+@end deffn
+
+@deffn {Procedure} sx-tail sx [ix] => (list)
+Return the ix-th tail starting after the tag and attribut list, where
+@var{ix} must be positive.  For example,
+@example
+(sx-tail '(tag (@@ (abc . "123")) (foo) (bar)) 1) => ((foo) (bar))
+@end example
+Without second argument @var{ix} is 1.
+@end deffn
+
+@deffn {Procedure} sx-has-attr? sx
+A predicate to determine if @var{sx} has attributes.
+@end deffn
+
+@deffn {Procedure} sx-attr sx => '(@@ ...)|#f
+@example
+(sx-attr '(abc (@@ (foo "1")) def) 1) => '(@@ (foo "1"))
+@end example
+should change this to
+@example
+(sx-attr sx) => '((a . 1) (b . 2) ...)
+@end example
+@end deffn
+
+@deffn {Procedure} sx-attr-ref sx key => val
+Return an attribute value given the key, or @code{#f}.
+@end deffn
+
+@deffn {Procedure} sx-set-attr! sx key val
+Set attribute for sx.  If no attributes exist, if key does not exist,
+add it, if it does exist, replace it.
+@end deffn
+
+@deffn {Procedure} sx-set-attr* sx key val [key val [key ... ]]
+Generate sx with added or changed attributes.
+@end deffn
+
+@deffn {Procedure} sx+attr* sx key val [key val [@dots{} ]] => sx
+Add key-val pairs. @var{key} must be a symbol and @var{val} must be
+a string.  Return a new @emph{sx}.
+@end deffn
+
+@deffn {Procedure} sx-find tag sx => ((tag ...) (tag ...))
+Find the first matching element (in the first level).
+@end deffn
+
+This illustrates translation with @code{foldts*-values} and
+@code{sxml-match}.
+
+@node Coding to the Compiler Tower
+@chapter Coding to the Compiler Tower
+
+@example
+(define-module (language javascript spec)
+  #:export (javascript)
+  #:use-module (nyacc lang javascript separser)
+  #:use-module (nyacc lang javascript compile-tree-il)
+  #:use-module (nyacc lang javascript pprint)
+  #:use-module (system base language))
+
+(define-language javascript
+  #:title       "javascript"
+  #:reader      js-reader
+  #:compilers   `((tree-il . ,compile-tree-il))
+  #:printer     pretty-print-js)
+@end example
+
+@example
+(define-module (nyacc lang javascript compile-tree-il)
+  #:export (compile-tree-il)
+  #:use-module (nyacc lang javascript jslib)
+  #:use-module ((sxml match) #:select (sxml-match))
+  #:use-module ((sxml fold) #:select (foldts*-values))
+  #:use-module ((srfi srfi-1) #:select (fold))
+  #:use-module (language tree-il))
+
+@dots{}
+
+(define (compile-tree-il exp env opts)
+  (let* ((xrep (js-sxml->tree-il-ext exp env opts))
+         (code (parse-tree-il xrep)))
+    (values code env env)))
+@end example
+
+@section Pretty Print
+@anchor{Pretty Print}
+
+@deffn {Procedure} make-pp-formatter [port] [#:per-line-prefix ""] => fmtr
+@example
+(fmtr 'push) ;; push indent level
+(fmtr 'pop)  ;; pop indent level
+(fmtr "fmt" arg1 arg2 ...)
+@end example
+@end deffn
+
+
+
+@node Administrative
+@chapter Administrative Notes
+
+@section Installation
+Installation instructions are included in the top-level file
+@file{INSTALL} of the source distribution.  If you have an installed
+Guile then the basic steps are
+@example
+$ ./configure
+$ make install
+@end example
+@noindent
+Help with alternative usage is available with
+@example
+$ ./configure --help
+@end example
+@noindent
+If Guile is not installed it is possible to install source only:
+@example
+$ ./configure --site-scm-dir=/path/to/dest --site-scm-go-dir=/dummy
+$ make install-srcs
+@end example
+
+@section Reporting Bugs
+Please report bugs by navigating with your browser to
+@indicateurl{https://savannah.nongnu.org/projects/nyacc} and select
+the ``Submit New'' item under the ``Bugs'' menu.  Alternatively, 
+ask on the Guile user's mailing list @email{guile-user@@gnu.org}.
+
+@section The Free Documentation License
+The Free Documentation License is included in the Guile Reference
+Manual.  It is included with the @nyacc{} source as the file 
+@file{COPYING.DOC}.
+
+@node TODOs
+@chapter TODOs, Notes, Ideas
+Todo/Notes/Ideas:
+@table @asis
+@item 16
+add error handling (lalr-spec will now return #f for fatal error)
+@item 3
+support other target languages:
+(write-lalr-parser pgen "foo.py" #:lang 'python)
+@item 6
+export functions to allow user to control the flow
+i.e., something like: (parse-1 state) => state
+@item 9
+macros - gotta be scheme macros but how to deal with other stuff
+@example
+(macro ($? val ...) () (val ...))
+(macro ($* val ...) () (_ val ...))
+(macro ($+ val ...) (val ...) (_ val ...))
+@end example
+@item 10
+support semantic forms: (1) attribute grammars, (2) translational
+semantics, (3) operational semantics, (4) denotational semantics
+@item 13
+add ($abort) and ($accept)
+@item 19
+add a location stack to the parser/lexer
+@item 26
+Fix lexical analyzer to return tval, sval pairs using @code{cons-source} 
+instead of @code{cons}.  This will then allow support of location info.
+@end table
+
+
+@node References
+@chapter References
+
+@table @asis
+@item [bison]
+Donnely, C., and Stallman, R., ``Bison: The Yacc Compatible Parser
+Generator,'' @url{https://www.gnu.org/software/bison/manual}.
+@item [DB]
+Aho, A.V., Sethi, R., and Ullman, J. D., ``Compilers: Principles,
+Techniques and Tools,'' Addison-Wesley, 1985 (aka the Dragon Book)
+@item [DP]
+DeRemer, F., and Pennello, T., ``Efficient Computation of LALR(1)
+Look-Ahead Sets.'' ACM Trans. Prog. Lang. and Systems, Vol. 4, No. 4.,
+Oct. 1982, pp. 615-649.
+@item [RPC]
+R. P. Corbett, ``Static Semantics and Compiler Error Recovery,''
+Ph.D. Thesis, UC Berkeley, 1985.
+@item [VM]
+@url{https://www.gnu.org/software/guile/manual/html_node/Compiling-to-the-Virtual-Machine.html#Compiling-to-the-Virtual-Machine}
+@end table
+
+
+@c Old Stuff, to be removed
+@ifset skip
+In the DB an item is used to refer to the position in a production and
+the position with associated lookaheads that give the possible set of
+terminals that can generate a reduction when the item is a candidate for
+reduction (i.e., the dot appears at the end of the p-rule). In this
+report we use the terms @emph{item} for the position and @emph{la-item}
+for the position and associated lookaheads.  An example of an la-item
+is as follows:
+@example
+A => B . C D, e/f/g
+@end example
+@noindent
+where @code{e/f/g} is a tuple of terminals which can appear at
+@example
+A => B C D ., e/f/g
+@end example
+@noindent
+We denote an item in the code using a cons with the index of the p-rule
+in the car and the index of the right-hand side symbol after the dot
+in the cdr.  The end of p-rule will be denoted with index @code{-1}.
+So if the rule @samp{A=>BCD} appears as index 7, then the above would
+be item @code{(7 . 1)} or la-item @code{((7 . 1) e f g)}.
+@end ifset
+
+@bye
+@c --- last line

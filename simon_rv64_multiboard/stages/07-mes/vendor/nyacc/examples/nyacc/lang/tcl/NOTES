@@ -1,0 +1,43 @@
+nyacc/lang/tcl/NOTES
+
+Copyright (C) 2018 Matthew R. Wette
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without any warranty.
+
+;; name arg ... => (cmd name arg ...)
+;; word => (word "acc" (command xxx))
+;; $name => (vref name)
+;; $name{index} => (vxref name index)
+;; ${name} => (vxref (word ...))
+;; [name arg ...] (cmd name arg ...)
+
+;; {x"xx"x} => 
+
+;; cmd : word word ...
+;; word :
+
+;; tough ones:
+;;  ${abc}${def}
+
+;; 00) {*} not implemented; I think this is unquote splicing
+
+;; blank = EOF or whitespace
+
+;; command
+;; check first character
+;; case { : read word to }, eat }, check blank after
+;; case " : read word to ", eat ", check blank after
+;; else read word to whitespace
+
+;; word
+;; read frags until end-cs
+
+;; read char
+;; $ : read frag => if followed by {...} then ixref, else deref
+;; { : read to } => string
+;; else collect string
+
+;; returns (word "xxx" (xxx ...)

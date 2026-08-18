@@ -1,0 +1,25 @@
+# Test program in M1: write(1, "hello from M1\n", 14); exit(0)
+# Compiled by M1.bin (itself built from M1_riscv64.M0 via M0).
+
+DEFINE addi 13000000
+DEFINE auipc 17000000
+DEFINE ecall 73000000
+DEFINE rd_a0 .00050000
+DEFINE rd_a1 .80050000
+DEFINE rd_a2 .00060000
+DEFINE rd_a7 .80080000
+DEFINE rs1_a1 .00800500
+
+rd_a7 !64 addi
+rd_a0 !1 addi
+rd_a1 ~msg auipc
+rd_a1 rs1_a1 !msg addi
+rd_a2 !14 addi
+ecall
+rd_a7 !93 addi
+rd_a0 addi
+ecall
+
+:msg
+"hello from M1
+"

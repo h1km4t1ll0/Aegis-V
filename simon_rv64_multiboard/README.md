@@ -1,43 +1,49 @@
-# Финальная сборка
-## Источники
-За основу взяты:
-* Проект [зимней школы](https://github.com/ylab-nsu/ws25-bootstrap)
-* [fosslinux/live-bootstrap](https://github.com/fosslinux/live-bootstrap)
-* [stage0-posix-riscv64](https://github.com/oriansj/stage0-posix-riscv64)
+# Simon RISC-V bootstrap
 
-Для ориентировании в коде рекомендую использовать [RISC-V Assembler Cheat Sheet](https://projectf.io/posts/riscv-cheat-sheet/).
+Лестница от hex0 до TCC 0.9.26.
 
-## Запуск
-Были написаны два (в зависимости от вашей платформы) shell-скрипта для билда и запуска. Для ручной сборки предлагаю ознакомиться с их кодами.
-> [!NOTE]
-> Отличия в скриптах исключительно в приставках команд, которые у меня разные на двух системах. 
-> Вполне возможно, что это я просто криво установил зависимости, поэтому если присущий вам скрипт не работает - попробуйте запустить другой. 
-
-Также реализован Makefile как ещё один вариант сборки и запуска.
-
-## Об образе
-В загрузочном файле реализована тестовая конкатенация трёх стадий, где основной упор сделан на вторую - ядро simon.
 ```
-image.bin = boot ^ simon ^ files
-```
-Первый файл, который нужен для запуска образа, заимствован из зимней школы. Остальные файлы - инструменты из репозитория stage0-posix и написанные тестовые программы, по которым проверялось работоспособность системных вызовов и самих hex-билдеров.
-
-## О файлах
-
-Стоит упомянуть, что наши файлы имеет несколько "костыльное" содержание. Перед сборкой их содержимое представляет из себя исключительно голый код программы, поэтому даже во взятых из stage0-posix программах мы вырезали ELF-заголовки. 
-
-Чтобы ядро смогло инициализировать файл и исполнить его, во время сборки к голому коду на первой и последней строке приписывается следующее:
-```
-src <имя файла>		<- именно так ядро поймёт и запомнит как называется наш файл
-<содержимое>
-\0					<- нулевой символ, чтобы отделять файлы друг от друга
+hex0 → hex1 → hex2 → M0 → cc → M2-Planet
+     → blood-elf / M1 / hex2
+     → GNU Mes + mescc
+     → TCC 0.9.26
 ```
 
+| | Каталог | Что это |
+|---|---|---|
+| ядро | `kernel/` | boot.S, simon.S |
+| платы | `boards/` | UART, память, make-флаги |
+| seed | `stages/` | исходники лестницы |
+| хост | `scripts/` | pack, QEMU-тест, hex0, прошивка |
+| доки | `docs/` | платы, языки |
+| U-Boot SPL | `firmware/` | входной блоб для fullflash |
+| сборка | `build/` | `files.pl`, `.elf/.bin`, образы |
 
+Имена **внутри образа** (`hex1.hex0`, `M2.c`, `tcc.c`, …) не совпадают с путями на диске. Их клеит `scripts/pack.sh` → `build/files.pl`.
 
-## Иные файлы
-* **bin-to-hex0.sh** - перевод бинарника в формат hex0.
-* **hex0.sh** - перевод hex0 обратно в бинарник.
-* **add_null.sh** - добавление в конец файла нулевого символа для разделения файлов (хотя в сборке файлов после второй стадии я ей не пользуюсь).
-* **parts.rst** - описание каждой стадии и что она делает.
-* В папке **files** лежат файлы, используемые в нашем загрузочном образе, и shell-скрипт для конкатенации таковых. 
+| Стадия | Каталог | Собирает | README |
+|---|---|---|---|
+| boot / simon | `kernel/` | образ, CLI, ФС | этот файл |
+| hex0 | `stages/00-hex0/` | hex1 | [00](stages/00-hex0/README.md) |
+| hex1 | `stages/01-hex1/` | hex2 | [01](stages/01-hex1/README.md) |
+| hex2 | `stages/02-hex2/` | M0, catm | [02](stages/02-hex2/README.md) |
+| M0 | `stages/03-m0/` | M1 | [03](stages/03-m0/README.md) |
+| cc | `stages/04-cc/` | C → M1 | [04](stages/04-cc/README.md) |
+| M2-Planet | `stages/05-m2/` | C compiler | [05](stages/05-m2/README.md) |
+| mescc-tools | `stages/06-mescc-tools/` | blood-elf, M1, hex2 | [06](stages/06-mescc-tools/README.md) |
+| Mes | `stages/07-mes/` | Scheme + mescc | [07](stages/07-mes/README.md) |
+| TCC | `stages/08-tcc/` | tcc 0.9.26 | [08](stages/08-tcc/README.md) |
+
+Платы: [docs/README_MULTIBOARD.md](docs/README_MULTIBOARD.md), Banana: [docs/README_BANANA_PI_K1X.md](docs/README_BANANA_PI_K1X.md). Языки (x86-справка): [docs/parts.rst](docs/parts.rst).
+
+## Сборка и QEMU
+
+```bash
+./scripts/pack.sh
+make BOARD=qemu_virt TOOLCHAIN=gcc CROSS_COMPILE=riscv64-elf- image_qemu.bin
+python3 -u scripts/run_m2_qemu_test.py
+```
+
+Образ: `build/boot.bin + build/simon.hex0 + build/files.pl` → `build/image_qemu.bin`.
+
+Истоки: [ylab](https://github.com/ylab-nsu/ws25-bootstrap), [live-bootstrap](https://github.com/fosslinux/live-bootstrap), [stage0-posix-riscv64](https://github.com/oriansj/stage0-posix-riscv64).

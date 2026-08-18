@@ -1,0 +1,227 @@
+# @configure_input@
+# -*- Makefile -*-
+#
+# Copyright (C) 2017-2020 -  Matthew R. Wette
+#
+# Copying and distribution of this file, with or without modification,
+# are permitted in any medium without royalty provided the copyright
+# notice and this notice are preserved.  This file is offered as-is,
+# without any warranty.
+#
+
+GUILE = @GUILE@
+GUILD = @abs_top_builddir@/etc/guild
+
+SITE_SCM_DIR = @GUILE_SITE@
+SITE_SCM_GO_DIR = @GUILE_SITE_GO@
+
+prefix = @prefix@
+
+SHELL = @SHELL@
+VPATH = @abs_top_srcdir@
+SCMDIR = @abs_top_srcdir@/examples
+GODIR = @abs_top_builddir@/examples
+
+FH_FFIS = \
+	ffi/cairo.ffi ffi/gdbm.ffi ffi/sqlite3.ffi \
+	ffi/libgit2.ffi \
+	ffi/glib.ffi ffi/gobject.ffi ffi/gio.ffi \
+	ffi/librsvg.ffi
+
+FH_FFIS = \
+	ffi/cairo.ffi ffi/gdbm.ffi ffi/sqlite3.ffi
+
+# -------------------------------------
+# development:
+
+FFI_GO_FILES = $(FH_FFIS:.ffi=.go)
+
+.INTERMEDIATE: ffi/%.scm %.scm
+
+%.scm: %.ffi
+	@echo "This may take a little time:"
+	$(GUILD) compile-ffi $< 
+
+%.go: %.scm
+	@echo "This may take a little time:"
+	$(GUILD) compile -o $@ $<
+
+all: $(FFI_GO_FILES)
+
+# -------------------------------------
+
+.PHONY:	install-nx-languages \
+	install-nx-utils \
+	install-nx-javascript \
+	install-nx-octave \
+	install-nx-tcl
+install-nx-languages: \
+	install-nx-utils \
+	install-nx-javascript \
+	install-nx-octave \
+	install-nx-tcl
+	@true
+
+UTDIR=nyacc/lang
+
+NYACC_NXUTIL_SRCS= $(UTDIR)/nx-util.scm $(UTDIR)/nx-lib.scm $(UTDIR)/nx-load.scm
+NYACC_NXUTIL_BINS= $(UTDIR)/nx-util.go $(UTDIR)/nx-lib.go $(UTDIR)/nx-load.go
+
+install-nx-utils:
+	@mkdir -p $(DESTDIR)$(SITE_SCM_DIR)
+	@echo "installing nx utilility sources in $(SITE_SCM_DIR)"
+	@for file in $(NYACC_NXUTIL_SRCS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; \
+	  fi; \
+	  cp $(SCMDIR)/$${file} $(DESTDIR)$(SITE_SCM_DIR)/$${file}; \
+	done
+	mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)
+	@echo "installing nx utility binaries in $(SITE_SCM_GO_DIR)"
+	@for binfile in $(NYACC_NXUTIL_BINS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${binfile}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)/`dirname $${binfile}`; \
+	  fi; \
+	  srcfile=`echo $${binfile} | sed -e 's/\.go$$/.scm/'`; \
+	  GUILE_LOAD_PATH=$(DESTDIR)$(SITE_SCM_DIR) $(GUILD) compile \
+                -o $(DESTDIR)$(SITE_SCM_GO_DIR)/$${binfile} \
+                $(DESTDIR)$(SITE_SCM_DIR)/$${srcfile}; \
+          sleep 1; \
+        done
+
+
+JSDIR=nyacc/lang/javascript
+
+NYACC_JAVASCRIPT_SRCS= language/nx-javascript/spec.scm \
+	$(JSDIR)/body.scm $(JSDIR)/compile-tree-il.scm $(JSDIR)/mach.scm \
+	$(JSDIR)/mach.d/ia-js-act.scm $(JSDIR)/mach.d/ia-js-tab.scm \
+	$(JSDIR)/mach.d/js-act.scm $(JSDIR)/mach.d/js-tab.scm \
+	$(JSDIR)/parser.scm $(JSDIR)/pprint.scm $(JSDIR)/xlib.scm \
+	$(JSDIR)/xlib-01.scm
+
+NYACC_JAVASCRIPT_BINS= language/nx-javascript/spec.go \
+	$(JSDIR)/compile-tree-il.go $(JSDIR)/parser.go $(JSDIR)/pprint.go \
+	$(JSDIR)/xlib.go
+
+install-nx-javascript:
+	@mkdir -p $(DESTDIR)$(SITE_SCM_DIR)
+	@echo "installing nx-javascript sources in $(SITE_SCM_DIR)"
+	@for file in $(NYACC_JAVASCRIPT_SRCS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; \
+	  fi; \
+	  cp $(SCMDIR)/$${file} $(DESTDIR)$(SITE_SCM_DIR)/$${file}; \
+	done
+	mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)
+	@echo "installing nx-javascript binaries in $(SITE_SCM_GO_DIR)"
+	@for binfile in $(NYACC_JAVASCRIPT_BINS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${binfile}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)/`dirname $${binfile}`; \
+	  fi; \
+	  srcfile=`echo $${binfile} | sed -e 's/\.go$$/.scm/'`; \
+	  GUILE_LOAD_PATH=$(DESTDIR)$(SITE_SCM_DIR) $(GUILD) compile \
+                -o $(DESTDIR)$(SITE_SCM_GO_DIR)/$${binfile} \
+                $(DESTDIR)$(SITE_SCM_DIR)/$${srcfile}; \
+          sleep 1; \
+        done
+
+MLDIR=nyacc/lang/octave
+
+NYACC_OCTAVE_SRCS= language/nx-octave/spec.scm \
+	$(MLDIR)/body.scm $(MLDIR)/compile-tree-il.scm $(MLDIR)/mach.scm \
+	$(MLDIR)/parser.scm $(MLDIR)/pprint.scm $(MLDIR)/util.scm \
+	$(MLDIR)/xlib.scm \
+	$(MLDIR)/mach.d/oct-act.scm $(MLDIR)/mach.d/oct-tab.scm \
+	$(MLDIR)/mach.d/octia-act.scm $(MLDIR)/mach.d/octia-tab.scm
+
+NYACC_OCTAVE_BINS = language/nx-octave/spec.go \
+	$(MLDIR)/compile-tree-il.go $(MLDIR)/parser.go $(MLDIR)/pprint.go \
+	$(MLDIR)/util.go $(MLDIR)/xlib.go
+
+.PHONY: install-nx-octave
+install-nx-octave:
+	@mkdir -p $(DESTDIR)$(SITE_SCM_DIR)
+	@echo "installing nx-octave sources in $(SITE_SCM_DIR)"
+	@for file in $(NYACC_OCTAVE_SRCS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; \
+	  fi; \
+	  cp $(SCMDIR)/$${file} $(DESTDIR)$(SITE_SCM_DIR)/$${file}; \
+	done
+	mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)
+	@echo "installing nx-octave binaries in $(SITE_SCM_GO_DIR)"
+	@for binfile in $(NYACC_OCTAVE_BINS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${binfile}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)/`dirname $${binfile}`; \
+	  fi; \
+	  srcfile=`echo $${binfile} | sed -e 's/\.go$$/.scm/'`; \
+	  GUILE_LOAD_PATH=$(DESTDIR)$(SITE_SCM_DIR) $(GUILD) compile \
+                -o $(DESTDIR)$(SITE_SCM_GO_DIR)/$${binfile} \
+                $(DESTDIR)$(SITE_SCM_DIR)/$${srcfile}; \
+          sleep 1; \
+        done
+
+TCLDIR=nyacc/lang/tcl
+
+NYACC_TCL_SRCS= language/nx-tcl/spec.scm \
+	$(TCLDIR)/compile-tree-il.scm $(TCLDIR)/mach.scm \
+	$(TCLDIR)/parser.scm $(TCLDIR)/xlib.scm \
+	$(TCLDIR)/mach.d/expr-act.scm $(TCLDIR)/mach.d/expr-tab.scm
+
+NYACC_TCL_BINS = language/nx-tcl/spec.go \
+	$(TCLDIR)/compile-tree-il.go $(TCLDIR)/mach.go \
+	$(TCLDIR)/parser.go $(TCLDIR)/xlib.go
+
+.PHONY: install-nx-tcl
+install-nx-tcl:
+	@mkdir -p $(DESTDIR)$(SITE_SCM_DIR)
+	@echo "installing nx-tcl sources in $(SITE_SCM_DIR)"
+	@for file in $(NYACC_TCL_SRCS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${file}`; \
+	  fi; \
+	  cp $(SCMDIR)/$${file} $(DESTDIR)$(SITE_SCM_DIR)/$${file}; \
+	done
+	mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)
+	@echo "installing nx-tcl binaries in $(SITE_SCM_GO_DIR)"
+	@for binfile in $(NYACC_TCL_BINS); do \
+	  if test ! -d $(DESTDIR)$(SITE_SCM_DIR)/`dirname $${binfile}`; then \
+	    mkdir -p $(DESTDIR)$(SITE_SCM_GO_DIR)/`dirname $${binfile}`; \
+	  fi; \
+	  srcfile=`echo $${binfile} | sed -e 's/\.go$$/.scm/'`; \
+	  GUILE_LOAD_PATH=$(DESTDIR)$(SITE_SCM_DIR) $(GUILD) compile \
+                -o $(DESTDIR)$(SITE_SCM_GO_DIR)/$${binfile} \
+                $(DESTDIR)$(SITE_SCM_DIR)/$${srcfile}; \
+          sleep 1; \
+        done
+
+
+# -------------------------------------
+
+examples:
+	mkdir -p $(DESTIR)/$prefix/share/doc/nyacc/examples
+	tar cf - $(SCMDIR)/ffi | \
+	  (cd $(DESTDIR)/$prefix/share/doc/nyacc/examples; tar xf -)
+
+
+# -------------------------------------
+
+.PHONY: dist-files
+dist-files:
+	@if test -f nyacc/lang/c99/,file.txt; then \
+	  (cd nyacc/lang/c99; \
+	   cp ,file.txt lang.txt; \
+	   zip lang.zip lang.txt; \
+	   rm lang.txt) \
+	fi
+
+ffi/gobject.scm: ffi/glib.scm
+ffi/gio.scm: ffi/glib.scm
+ffi/librsvg.scm: ffi/gobject.scm
+
+.PHONY: install-bytestructures
+install-bytestructures:
+	@echo "NYACC no longer includes bytestructures.  Please get it from"
+	@echo "  https://github.com/TaylanUB/scheme-bytestructures/releases"
+
+# --- last line ---

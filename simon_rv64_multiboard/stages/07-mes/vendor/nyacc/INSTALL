@@ -1,0 +1,69 @@
+Install instructions for NYACC
+
+Copyright (C) 2015-2020 Matthew R. Wette
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without any warranty.
+
+This package depends on having GNU Guile version 2.0.13 or later. See
+
+  https://www.gnu.org/software/guile/download/#releases
+
+Use of the optional FFI Helper requires scheme-bytestructures.  See
+
+  https://github.com/TaylanUB/scheme-bytestructures/releases
+
+To configure:
+
+  $ cd nyacc-0.00.0
+  $ ./configure [options]
+
+Type ./configure --help to see the options.  Common options are
+  --prefix=/path/to/root
+  GUILE=/path/to/guile
+
+To build in a separate directory:
+
+  $ mkdir build; cd build
+  $ ../nyacc-0.00.0/configure [options]
+
+
+Build the binaries:
+
+  $ make
+  ...
+
+
+Run the tests:
+
+  $ make check
+  ...
+  PASS: nyacc/lex-01: C char literals
+  PASS: nyacc/lex-01: C strings
+  ...
+
+
+To install the parser generator, the c99 parser and the FFI helper
+
+  $ make install
+  ...
+
+or
+  $ make DESTDIR=/path/to/tmpdir install
+  ...
+
+
+To install only sources in /path/to/dest:
+  $ ./configure --site_scm_dir=/path/to/dest --site_scm_go_dir=/dummy
+  $ make install-srcs
+
+You must specify site_scm_go_dir to avoid use of `guile'.
+
+To install the infant nx-languages (javascript, octave, tcl) type
+
+  $ make install-nx-languages
+
+The file HACKING has hints for modifying and trying code.
+

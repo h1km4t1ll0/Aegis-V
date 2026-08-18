@@ -1,0 +1,88 @@
+# @configure_input@
+# -*- Makefile -*-
+#
+# Copyright (C) 2015-2020 Matthew R. Wette
+# 
+# Copying and distribution of this file, with or without modification,
+# are permitted in any medium without royalty provided the copyright
+# notice and this notice are preserved.  This file is offered as-is,
+# without any warranty.
+
+GUILE = @GUILE@
+GUILD = @abs_top_builddir@/etc/guild
+
+SITE_SCM_DIR = @GUILE_SITE@
+SITE_SCM_GO_DIR = @GUILE_SITE_GO@
+
+SHELL = @SHELL@
+INFODIR = @GUILE_DATA@/info
+DOCDIR = @GUILE_DATA@/doc/nyacc
+
+TOPDIR = @abs_top_srcdir@
+INSTALL = $(TOPDIR)/etc/install-sh -m 644
+
+SCM_FILES_W_TEXI = \
+	../../module/nyacc/lalr.scm \
+	../../module/nyacc/lex.scm 
+
+.PHONY: all
+all:
+	@true
+
+.PHONY: install
+install: install-info install-pdf install-html
+
+.PHONY: install-info
+install-info:
+	mkdir -p $(DESTDIR)$(INFODIR)
+	for file in nyacc-ug.info nyacc-c99-ug.info nyacc-fh-ug.info; do \
+		$(INSTALL) $(TOPDIR)/doc/nyacc/$${file} $(DESTDIR)$(INFODIR); \
+	done
+
+.PHONY: install-pdf
+install-pdf:
+	mkdir -p $(DESTDIR)$(DOCDIR)
+	for file in nyacc-ug.pdf nyacc-c99-ug.pdf nyacc-fh-ug.pdf; do \
+		$(INSTALL) $(TOPDIR)/doc/nyacc/$${file} $(DESTDIR)$(DOCDIR); \
+	done
+
+.PHONY: install-html
+install-html:
+	mkdir -p $(DESTDIR)$(DOCDIR)
+	for file in nyacc-ug.html nyacc-c99-ug.html nyacc-fh-ug.html; do \
+		$(INSTALL) $(TOPDIR)/doc/nyacc/$${file} $(DESTDIR)$(DOCDIR); \
+	done
+
+.PHONY: dist-files
+dist-files: \
+	nyacc-ug.info nyacc-ug.pdf nyacc-ug.html \
+	nyacc-c99-ug.info nyacc-c99-ug.pdf nyacc-c99-ug.html \
+	nyacc-fh-ug.info nyacc-fh-ug.pdf nyacc-fh-ug.html
+
+%_scm.texi: ../../module/nyacc/%.scm
+	./pull-texi.scm $< >$@
+
+%.info: %.texi
+	makeinfo $<
+	rm -f $*.fn $*.fns
+
+%.pdf: %.texi
+	texi2dvi --pdf --batch $<
+	texi2dvi --pdf --batch $<
+	rm -f $*.aux $*.log $*.toc $*.fn $*.fns
+
+%.html: %.texi
+	texi2any --html --no-split $<
+
+COPYING.DOC: fdl.texi
+	makeinfo --plaintext fdl.texi >$@
+
+.PHONY: clean
+clean:
+	rm -f *.aux *.cp *.fn *.fns *.ky *.log *.pg *.toc *.tp *.vr
+
+.PHONY: really-clean
+really-clean:
+	rm -f *.pdf *.info
+
+# --- last line
