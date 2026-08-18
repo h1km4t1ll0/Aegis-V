@@ -53,7 +53,7 @@
 #define EARLY_WARMUP_START  0x80050000
 #define EARLY_WARMUP_END    0x80200000
 #define WARMUP1_START       0x80050000
-#define WARMUP1_END         0x80200000
-#define WARMUP2_ENABLE      0
-#define WARMUP2_START       0
-#define WARMUP2_END         0
+#define WARMUP1_END         0x80080000
+#define WARMUP2_ENABLE      1
+#define WARMUP2_START       0x80090000
+#define WARMUP2_END         0x80200000

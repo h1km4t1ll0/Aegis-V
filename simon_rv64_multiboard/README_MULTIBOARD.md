@@ -148,6 +148,13 @@ do hex2.bin testD.hex2 testD.bin
 do testD.bin
 ```
 
+Первые пять команд можно выполнить автоматически:
+
+```text
+bootstrap
+do testD.bin
+```
+
 Ожидаемый финал:
 
 ```text

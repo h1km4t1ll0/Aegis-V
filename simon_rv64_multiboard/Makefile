@@ -28,8 +28,8 @@ endif
 
 qemu:
 	$(MAKE) BOARD=qemu_virt clean_tmp
-	$(MAKE) BOARD=qemu_virt $(YOUR_RAW_BIN)
-	qemu-system-riscv64 -M virt -bios image_qemu.bin -monitor stdio
+	$(MAKE) BOARD=qemu_virt all
+	qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M -bios image_qemu.bin -nographic -monitor none
 
 prepare-files:
 	cd files && ./prepare_files.sh

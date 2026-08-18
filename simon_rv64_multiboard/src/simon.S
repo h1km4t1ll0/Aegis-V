@@ -542,6 +542,11 @@ output:
     beqz a0, hex0
 
     la a0, buffer
+    la a1, bootstrap_cmd
+    call cmdcmp
+    beqz a0, bootstrap
+
+    la a0, buffer
     la a1, do_cmd
     call cmdcmp
     beqz a0, do
@@ -820,10 +825,113 @@ hex0_copy_full:
             call puts
     
 hex0_done:
+    la t0, bootstrap_stage
+    ld t1, 0(t0)
+    beqz t1, output_done
+    la a0, sym_newline
+    call puts
+    j bootstrap_after_stage
+
+
+
+
+bootstrap:
+    # bootstrap_stage is the number of the currently running command.
+    # The next command is started by sys_exit after the previous one exits.
+    la t0, bootstrap_stage
+    li t1, 1
+    sd t1, 0(t0)
+    j bootstrap_run_stage
+
+bootstrap_run_stage:
+    la t0, bootstrap_stage
+    ld t1, 0(t0)
+
+    li t2, 1
+    beq t1, t2, bootstrap_stage_1
+    li t2, 2
+    beq t1, t2, bootstrap_stage_2
+    li t2, 3
+    beq t1, t2, bootstrap_stage_3
+    li t2, 4
+    beq t1, t2, bootstrap_stage_4
+    li t2, 5
+    beq t1, t2, bootstrap_stage_5
+    j bootstrap_abort
+
+bootstrap_stage_1:
+    la a0, bootstrap_command_1
+    j bootstrap_load_command
+bootstrap_stage_2:
+    la a0, bootstrap_command_2
+    j bootstrap_load_command
+bootstrap_stage_3:
+    la a0, bootstrap_command_3
+    j bootstrap_load_command
+bootstrap_stage_4:
+    la a0, bootstrap_command_4
+    j bootstrap_load_command
+bootstrap_stage_5:
+    la a0, bootstrap_command_5
+
+bootstrap_load_command:
+    # Show the command, then put it into the regular SiSH input buffer.
+    # Reusing `do` keeps argv and process setup identical to manual input.
+    addi sp, sp, -16
+    sd a0, 0(sp)
+    la a0, bootstrap_run_msg
+    call puts
+    ld a0, 0(sp)
+    call puts
+    la a0, sym_newline
+    call puts
+    ld a0, 0(sp)
+    addi sp, sp, 16
+
+    la t0, buffer
+    li t1, BUFFER_SIZE - 1
+bootstrap_copy_loop:
+    beqz t1, bootstrap_copy_truncate
+    lb t2, 0(a0)
+    sb t2, 0(t0)
+    beqz t2, bootstrap_copy_done
+    addi a0, a0, 1
+    addi t0, t0, 1
+    addi t1, t1, -1
+    j bootstrap_copy_loop
+bootstrap_copy_truncate:
+    sb zero, 0(t0)
+bootstrap_copy_done:
+    la t0, bootstrap_stage
+    ld t1, 0(t0)
+    li t2, 1
+    beq t1, t2, hex0
+    j do
+
+bootstrap_after_stage:
+    la t0, bootstrap_stage
+    ld t1, 0(t0)
+    beqz t1, output_done
+
+    li t2, 5
+    bgeu t1, t2, bootstrap_complete
+    addi t1, t1, 1
+    sd t1, 0(t0)
+    j bootstrap_run_stage
+
+bootstrap_complete:
+    la t0, bootstrap_stage
+    sd zero, 0(t0)
+    la a0, bootstrap_done_msg
+    call puts
     j output_done
 
-
-
+bootstrap_abort:
+    la t0, bootstrap_stage
+    sd zero, 0(t0)
+    la a0, bootstrap_failed_msg
+    call puts
+    j output_done
 
 do:
     # v6: every launched user program gets a clean heap base.
@@ -933,6 +1041,11 @@ do_parse_done:
     j find_next
 
 do_done:
+    # Do not leave a half-finished bootstrap armed when an executable is
+    # missing; a later unrelated `do` must not resume the old chain.
+    la t0, bootstrap_stage
+    ld t1, 0(t0)
+    bnez t1, bootstrap_abort
     j output_done
 
 view:
@@ -1274,7 +1387,7 @@ sys_exit_close_done:
     # gives control to the user process manually.  After user exit we must
     # return directly to SiSH, not to scheduler/find_next, otherwise SiSH is
     # restarted from its entry point and embedded files can be parsed again.
-    j output_done
+    j bootstrap_after_stage
 
 /*
     Системный вызов write (64)
@@ -2366,6 +2479,9 @@ str_src:                .string "src"
 greetings:              .string "[BOOTED]: Stage 2 (simon) - coded by Team 42.\r\n"
 hex0_build:             .string "Building "
 hex0_builded:           .string "Done."
+bootstrap_run_msg:      .string "[bootstrap] "
+bootstrap_done_msg:     .string "[bootstrap] Done. Run: do testD.bin\r\n"
+bootstrap_failed_msg:   .string "[bootstrap] Failed: executable file not found.\r\n"
 # ===============================================
 
 # ============= Сообщения исключений ============
@@ -2384,8 +2500,17 @@ shutdown_cmd:           .string "shutdown"
 reboot_cmd:             .string "reboot"
 ls_cmd:                 .string "ls"
 hex0_cmd:               .string "hex0"
+bootstrap_cmd:          .string "bootstrap"
 do_cmd:                 .string "do"
 view_cmd:               .string "view"
+# ===============================================
+
+# ============= Bootstrap command list ===========
+bootstrap_command_1:    .string "hex0 hex1.hex0"
+bootstrap_command_2:    .string "do hex1.bin hex2.hex1 hex2.bin"
+bootstrap_command_3:    .string "do hex2.bin M0.hex2 M0.bin"
+bootstrap_command_4:    .string "do M0.bin testD.M0 testD.hex2"
+bootstrap_command_5:    .string "do hex2.bin testD.hex2 testD.bin"
 # ===============================================
 
 # ================== Процессы ===================
@@ -2415,6 +2540,7 @@ next_file_data:         .space  8
 heap_ptr:               .space  8
 user_running:           .space  8
 user_proc:              .space  8
+bootstrap_stage:        .space  8
 buffer:                 .space  BUFFER_SIZE
 buffer_index:           .space  1
 buffer_ready:           .space  1
