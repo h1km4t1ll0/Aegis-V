@@ -14,6 +14,7 @@ import termios
 import time
 
 
+
 PROMPT = "Simon says~:"
 BUFFER_LIMIT = 262144
 
