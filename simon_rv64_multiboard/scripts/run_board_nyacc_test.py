@@ -14,7 +14,6 @@ import termios
 import time
 
 
-
 PROMPT = "Simon says~:"
 BUFFER_LIMIT = 262144
 
@@ -162,8 +161,9 @@ class SimonSerial:
         while time.monotonic() < deadline:
             if PROMPT in self.buffer:
                 index = self.buffer.rfind(PROMPT)
+                output = self.buffer[:index]
                 self.buffer = self.buffer[index + len(PROMPT) :]
-                return
+                return output
             self.read_more(min(0.5, deadline - time.monotonic()))
 
         raise TimeoutError(
@@ -202,8 +202,9 @@ class SimonSerial:
 
             if expected is not None and expected in self.buffer:
                 print(f"\n[got] {expected}", flush=True)
-                self.wait_prompt(max(1, deadline - time.monotonic()), line)
-                return
+                return self.wait_prompt(
+                    max(1, deadline - time.monotonic()), line
+                )
 
             if PROMPT in self.buffer:
                 if expected is not None:
@@ -213,8 +214,7 @@ class SimonSerial:
                     )
                 elapsed = int(time.monotonic() - started)
                 print(f"\n[done] {line}: {elapsed}s", flush=True)
-                self.wait_prompt(1, line)
-                return
+                return self.wait_prompt(1, line)
 
             self.read_more(min(0.5, deadline - time.monotonic()))
 

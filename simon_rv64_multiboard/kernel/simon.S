@@ -30,6 +30,11 @@
 #define OPEN_FILE_MAX_FD        64
 #endif
 #define FILE_NAME_SLOT          0x400
+#define THREAD_TEST_COUNT       4
+#define THREAD_TEST_ITERATIONS_NORMAL  4096
+#define THREAD_TEST_ITERATIONS_STRESS  1048576
+#define THREAD_TEST_YIELD_NORMAL       1
+#define THREAD_TEST_YIELD_STRESS       64
 #ifndef ARGS_BLOCK_BASE
 #define ARGS_BLOCK_BASE ARGS_BLOCK_BASE
 #endif
@@ -45,6 +50,7 @@
 #define SYS_EXIT                93
 #define SYS_EXIT_OLD            80
 #define SYS_CLOCK_GETTIME       113
+#define SYS_SCHED_YIELD         124
 #define SYS_UNAME               160
 #define SYS_GETTIMEOFDAY        169
 #define SYS_BRK                 214
@@ -559,6 +565,21 @@ output:
     beqz a0, stat_file
 
     la a0, buffer
+    la a1, memtest_cmd
+    call cmdcmp
+    beqz a0, memtest
+
+    la a0, buffer
+    la a1, threadtest_cmd
+    call cmdcmp
+    beqz a0, threadtest
+
+    la a0, buffer
+    la a1, threadstress_cmd
+    call cmdcmp
+    beqz a0, threadstress
+
+    la a0, buffer
     la a1, hex0_cmd
     call cmdcmp
     beqz a0, hex0
@@ -676,6 +697,421 @@ stat_file:
 
 stat_file_not_found:
     la a0, msg_file_not_found
+    call puts
+    j output_done
+
+/* Cooperative scheduler test.  Four kernel threads increment one shared
+ * atomic counter, maintain per-thread checksums, and yield at a configured
+ * interval.  This validates process creation plus full register/context
+ * restoration on the currently booted hart; it is not an SMP test.
+ */
+threadtest:
+    li s5, 0
+    li s6, THREAD_TEST_ITERATIONS_NORMAL
+    li s7, THREAD_TEST_YIELD_NORMAL
+    j threadtest_setup
+
+threadstress:
+    li s5, 1
+    li s6, THREAD_TEST_ITERATIONS_STRESS
+    li s7, THREAD_TEST_YIELD_STRESS
+
+threadtest_setup:
+    la t0, thread_test_active
+    ld t1, 0(t0)
+    bnez t1, threadtest_busy
+    li t1, 1
+    sd t1, 0(t0)
+
+    la t0, thread_test_mode
+    sd s5, 0(t0)
+    la t0, thread_test_iterations
+    sd s6, 0(t0)
+    la t0, thread_test_yield_every
+    sd s7, 0(t0)
+
+    la t0, thread_test_counter
+    sd zero, 0(t0)
+    la t0, thread_test_done
+    sd zero, 0(t0)
+    la t0, thread_test_switches
+    sd zero, 0(t0)
+    la t0, thread_test_counts
+    sd zero, 0(t0)
+    sd zero, 8(t0)
+    sd zero, 16(t0)
+    sd zero, 24(t0)
+    la t0, thread_test_checksums
+    sd zero, 0(t0)
+    sd zero, 8(t0)
+    sd zero, 16(t0)
+    sd zero, 24(t0)
+
+    la a0, msg_threadtest_begin
+    call puts
+
+    # Save a deterministic continuation for SiSH before handing control to
+    # the newly created tasks.  There is no timer on Lichee, so workers yield
+    # cooperatively through SYS_SCHED_YIELD.
+    la t0, current_proc
+    ld t0, 0(t0)
+    sd sp, 0x10(t0)
+    la t1, threadtest_wait
+    sd t1, 0xc0(t0)
+
+    li s0, 0
+threadtest_create_loop:
+    li t0, THREAD_TEST_COUNT
+    bgeu s0, t0, threadtest_start
+    la a0, threadtest_worker
+    la a1, ps_name_threadtest
+    call create_process
+    sd s0, 0x80(a0)       # initial worker argument / thread id
+    addi s0, s0, 1
+    j threadtest_create_loop
+
+threadtest_start:
+    j find_next
+
+threadtest_wait:
+    la t0, thread_test_done
+    ld t1, 0(t0)
+    li t2, THREAD_TEST_COUNT
+    bltu t1, t2, find_next
+
+    la t0, thread_test_counter
+    ld t1, 0(t0)
+    la t0, thread_test_iterations
+    ld t2, 0(t0)
+    li t3, THREAD_TEST_COUNT
+    mul t2, t2, t3
+    bne t1, t2, threadtest_fail
+
+    la t0, thread_test_counts
+    li t1, 0
+threadtest_check_counts:
+    li t2, THREAD_TEST_COUNT
+    bgeu t1, t2, threadtest_check_checksums
+    ld t3, 0(t0)
+    la t4, thread_test_iterations
+    ld t4, 0(t4)
+    bne t3, t4, threadtest_fail
+    addi t0, t0, 8
+    addi t1, t1, 1
+    j threadtest_check_counts
+
+threadtest_check_checksums:
+    la t0, thread_test_iterations
+    ld t4, 0(t0)
+    addi t5, t4, 1
+    mul t4, t4, t5
+    srli t4, t4, 1       # expected sum 1..iterations
+    la t0, thread_test_checksums
+    li t1, 0
+threadtest_check_checksum_loop:
+    li t2, THREAD_TEST_COUNT
+    bgeu t1, t2, threadtest_check_switches
+    ld t3, 0(t0)
+    bne t3, t4, threadtest_fail
+    addi t0, t0, 8
+    addi t1, t1, 1
+    j threadtest_check_checksum_loop
+
+threadtest_check_switches:
+    la t0, thread_test_switches
+    ld t1, 0(t0)
+    la t0, thread_test_iterations
+    ld t2, 0(t0)
+    la t0, thread_test_yield_every
+    ld t3, 0(t0)
+    divu t2, t2, t3
+    li t3, THREAD_TEST_COUNT
+    mul t2, t2, t3
+    bne t1, t2, threadtest_fail
+    la a0, msg_threadtest_pass
+    call puts
+    j threadtest_report
+
+threadtest_fail:
+    la a0, msg_threadtest_fail
+    call puts
+
+threadtest_report:
+    la a0, msg_threadtest_mode
+    call puts
+    la t0, thread_test_mode
+    ld t0, 0(t0)
+    beqz t0, threadtest_report_normal
+    la a0, msg_threadtest_stress
+    call puts
+    j threadtest_report_threads
+threadtest_report_normal:
+    la a0, msg_threadtest_normal
+    call puts
+threadtest_report_threads:
+    la a0, msg_threadtest_threads
+    call puts
+    li a0, THREAD_TEST_COUNT
+    call print_dec
+    la a0, msg_threadtest_iterations
+    call puts
+    la t0, thread_test_iterations
+    ld a0, 0(t0)
+    call print_dec
+    la a0, msg_threadtest_yield_every
+    call puts
+    la t0, thread_test_yield_every
+    ld a0, 0(t0)
+    call print_dec
+    la a0, msg_threadtest_counter
+    call puts
+    la t0, thread_test_counter
+    ld a0, 0(t0)
+    call print_dec
+    la a0, msg_threadtest_switches
+    call puts
+    la t0, thread_test_switches
+    ld a0, 0(t0)
+    call print_dec
+    la a0, msg_threadtest_hart
+    call puts
+    csrr a0, mhartid
+    call print_dec
+    la a0, sym_newline
+    call puts
+    la t0, thread_test_active
+    sd zero, 0(t0)
+    j output_done
+
+threadtest_busy:
+    la a0, msg_threadtest_busy
+    call puts
+    j output_done
+
+threadtest_worker:
+    mv s0, a0             # thread id
+    la t0, thread_test_iterations
+    ld s1, 0(t0)
+    la t0, thread_test_yield_every
+    ld s4, 0(t0)
+    li s2, 0
+    li s3, 0
+threadtest_worker_loop:
+    bgeu s2, s1, threadtest_worker_done
+
+    li t0, 1
+    la t1, thread_test_counter
+    amoadd.d.aqrl zero, t0, (t1)
+
+    la t1, thread_test_counts
+    slli t2, s0, 3
+    add t1, t1, t2
+    ld t2, 0(t1)
+    addi t2, t2, 1
+    sd t2, 0(t1)
+
+    addi s2, s2, 1
+    add s3, s3, s2
+    remu t0, s2, s4
+    bnez t0, threadtest_worker_loop
+    li a7, SYS_SCHED_YIELD
+    ecall
+    j threadtest_worker_loop
+
+threadtest_worker_done:
+    la t0, thread_test_checksums
+    slli t1, s0, 3
+    add t0, t0, t1
+    sd s3, 0(t0)
+    li t0, 1
+    la t1, thread_test_done
+    amoadd.d.aqrl zero, t0, (t1)
+    la t0, current_proc
+    ld t0, 0(t0)
+    sd zero, 0x8(t0)
+    j find_next
+
+/* Destructive sparse DDR probe.
+ *
+ * Usage: memtest <start-hex> <end-hex> <step-hex>
+ *
+ * The end address is exclusive.  Every sampled 64-bit word is first written
+ * and read back immediately.  A second read pass detects address aliases.
+ * The command deliberately leaves the test pattern in RAM; reboot after it.
+ */
+memtest:
+    la a0, buffer
+    addi a0, a0, 8          # strlen("memtest") + one space
+    call parse_hex_arg
+    beqz a2, memtest_bad_args
+    mv s1, a0               # start
+
+    mv a0, a1
+    call parse_hex_arg
+    beqz a2, memtest_bad_args
+    mv s2, a0               # end (exclusive)
+
+    mv a0, a1
+    call parse_hex_arg
+    beqz a2, memtest_bad_args
+    mv s3, a0               # step
+    lb t0, 0(a1)
+    bnez t0, memtest_bad_args
+
+    li t0, HEAP_BASE
+    bltu s1, t0, memtest_bad_range
+    bgeu s1, s2, memtest_bad_range
+    li t0, 8
+    bltu s3, t0, memtest_bad_range
+    or t0, s1, s2
+    or t0, t0, s3
+    andi t0, t0, 7
+    bnez t0, memtest_bad_range
+
+    la t0, memtest_start_addr
+    sd s1, 0(t0)
+    la t0, memtest_end_addr
+    sd s2, 0(t0)
+    la t0, memtest_step_bytes
+    sd s3, 0(t0)
+    la t0, memtest_active
+    li t1, 1               # write/read-back pass
+    sd t1, 0(t0)
+
+    la a0, msg_memtest_begin
+    call puts
+    mv a0, s1
+    call puth
+    la a0, msg_memtest_end
+    call puts
+    mv a0, s2
+    call puth
+    la a0, msg_memtest_step
+    call puts
+    mv a0, s3
+    call puth
+    la a0, sym_newline
+    call puts
+
+    mv s4, s1
+    mv s7, s1
+memtest_write_loop:
+    bgeu s4, s2, memtest_write_done
+    bltu s4, s7, memtest_write_no_progress
+    la a0, msg_memtest_write
+    call puts
+    mv a0, s4
+    call puth
+    la a0, sym_newline
+    call puts
+    li t0, 0x4000000       # one progress marker per 64 MiB
+    add s7, s7, t0
+memtest_write_no_progress:
+    li s5, 0x9e3779b97f4a7c15
+    xor s5, s5, s4
+    sd s5, 0(s4)
+    ld t0, 0(s4)
+    bne t0, s5, memtest_mismatch_write
+    add s4, s4, s3
+    j memtest_write_loop
+
+memtest_write_done:
+    fence rw, rw
+    la a0, msg_memtest_write_ok
+    call puts
+    la t0, memtest_active
+    li t1, 2               # alias/read verification pass
+    sd t1, 0(t0)
+    mv s4, s1
+    mv s7, s1
+
+memtest_read_loop:
+    bgeu s4, s2, memtest_pass
+    bltu s4, s7, memtest_read_no_progress
+    la a0, msg_memtest_read
+    call puts
+    mv a0, s4
+    call puth
+    la a0, sym_newline
+    call puts
+    li t0, 0x4000000       # one progress marker per 64 MiB
+    add s7, s7, t0
+memtest_read_no_progress:
+    li s5, 0x9e3779b97f4a7c15
+    xor s5, s5, s4
+    ld t0, 0(s4)
+    bne t0, s5, memtest_mismatch_read
+    add s4, s4, s3
+    j memtest_read_loop
+
+memtest_mismatch_write:
+    li t1, 1
+    j memtest_mismatch
+memtest_mismatch_read:
+    li t1, 2
+memtest_mismatch:
+    la t2, memtest_actual
+    sd t0, 0(t2)
+    la t2, memtest_expected
+    sd s5, 0(t2)
+    la t2, memtest_fault_address
+    sd s4, 0(t2)
+    la t2, memtest_phase
+    sd t1, 0(t2)
+    la t2, memtest_active
+    sd zero, 0(t2)
+    la a0, msg_memtest_mismatch
+    call puts
+    mv a0, s4
+    call puth
+    la a0, msg_memtest_expected
+    call puts
+    mv a0, s5
+    call puth
+    la a0, msg_memtest_actual
+    call puts
+    la t0, memtest_actual
+    ld a0, 0(t0)
+    call puth
+    la a0, sym_newline
+    call puts
+    j output_done
+
+memtest_pass:
+    la t0, memtest_active
+    sd zero, 0(t0)
+    la a0, msg_memtest_pass
+    call puts
+    j output_done
+
+memtest_bad_args:
+    la a0, msg_memtest_usage
+    call puts
+    j output_done
+
+memtest_bad_range:
+    la a0, msg_memtest_range
+    call puts
+    j output_done
+
+/* Trap recovery lands here after an access fault during memtest. */
+memtest_fault_recover:
+    la a0, msg_memtest_fault
+    call puts
+    la t0, memtest_fault_address
+    ld a0, 0(t0)
+    call puth
+    la a0, msg_memtest_cause
+    call puts
+    la t0, memtest_fault_cause
+    ld a0, 0(t0)
+    call puth
+    la a0, msg_memtest_phase
+    call puts
+    la t0, memtest_phase
+    ld a0, 0(t0)
+    call print_dec
+    la a0, sym_newline
     call puts
     j output_done
 
@@ -1086,9 +1522,55 @@ view_done:
 yield:
 #if BOARD_TRAP_MODE == BOARD_TRAP_M
     csrw mscratch, t0
+    csrr t6, mcause
 #else
     csrw sscratch, t0
+    csrr t6, scause
 #endif
+
+    # A probing load/store fault is an expected memtest result.  Redirect the
+    # exception to a reporting path instead of panicking the whole shell.
+    li t5, 5               # load access fault
+    beq t6, t5, memtest_trap_candidate
+    li t5, 7               # store/AMO access fault
+    beq t6, t5, memtest_trap_candidate
+#if BOARD_TRAP_MODE != BOARD_TRAP_M
+    li t5, 13              # load page fault
+    beq t6, t5, memtest_trap_candidate
+    li t5, 15              # store/AMO page fault
+    beq t6, t5, memtest_trap_candidate
+#endif
+    j memtest_trap_not_handled
+
+memtest_trap_candidate:
+    la t5, memtest_active
+    ld t4, 0(t5)
+    beqz t4, memtest_trap_not_handled
+    la t5, memtest_phase
+    sd t4, 0(t5)
+    la t5, memtest_fault_cause
+    sd t6, 0(t5)
+#if BOARD_TRAP_MODE == BOARD_TRAP_M
+    csrr t4, mtval
+#else
+    csrr t4, stval
+#endif
+    la t5, memtest_fault_address
+    sd t4, 0(t5)
+    la t5, memtest_active
+    sd zero, 0(t5)
+    la t5, memtest_fault_recover
+#if BOARD_TRAP_MODE == BOARD_TRAP_M
+    csrw mepc, t5
+    csrr t0, mscratch
+    mret
+#else
+    csrw sepc, t5
+    csrr t0, sscratch
+    sret
+#endif
+
+memtest_trap_not_handled:
     la t0, current_proc
     ld t0, 0(t0)
     beqz t0, yield_no_save
@@ -1245,6 +1727,9 @@ syscall_entry:
     li t1, SYS_BRK
     beq a7, t1, sys_brk
 
+    li t1, SYS_SCHED_YIELD
+    beq a7, t1, sys_sched_yield
+
     li t1, SYS_CLOCK_GETTIME
     beq a7, t1, sys_clock_gettime
 
@@ -1281,6 +1766,13 @@ syscall_return_minus_one:
     li t1, -1
     sd t1, 0x80(t0)
     j syscall_resume_current
+
+sys_sched_yield:
+    la t0, thread_test_switches
+    ld t1, 0(t0)
+    addi t1, t1, 1
+    sd t1, 0(t0)
+    j find_next
 
 syscall_resume_current:
     la t0, current_proc
@@ -2553,12 +3045,89 @@ cmdcmp:
             ld t1, 8(sp)
             addi sp, sp, 16
             ret
-        cmdcmp_not_equal:
+cmdcmp_not_equal:
             li a0, 1
             ld t0, 0(sp)
             ld t1, 8(sp)
             addi sp, sp, 16
             ret
+
+/* Parse one whitespace-separated hexadecimal argument.
+ * Input: a0 = cursor. Output: a0 = value, a1 = next cursor, a2 = success.
+ * Both 44000000 and 0x44000000 are accepted.
+ */
+parse_hex_arg:
+parse_hex_skip_spaces:
+    lb t0, 0(a0)
+    li t1, ' '
+    bne t0, t1, parse_hex_prefix
+    addi a0, a0, 1
+    j parse_hex_skip_spaces
+
+parse_hex_prefix:
+    lb t0, 0(a0)
+    li t1, '0'
+    bne t0, t1, parse_hex_begin
+    lb t0, 1(a0)
+    li t1, 'x'
+    beq t0, t1, parse_hex_skip_prefix
+    li t1, 'X'
+    bne t0, t1, parse_hex_begin
+parse_hex_skip_prefix:
+    addi a0, a0, 2
+
+parse_hex_begin:
+    li a3, 0
+    li a2, 0
+parse_hex_loop:
+    lb t0, 0(a0)
+    beqz t0, parse_hex_done
+    li t1, ' '
+    beq t0, t1, parse_hex_delimiter
+
+    li t1, '0'
+    bltu t0, t1, parse_hex_invalid
+    li t1, '9'
+    bleu t0, t1, parse_hex_digit
+    li t1, 'a'
+    bltu t0, t1, parse_hex_upper
+    li t1, 'f'
+    bgtu t0, t1, parse_hex_invalid
+    addi t0, t0, -('a' - 10)
+    j parse_hex_add
+parse_hex_upper:
+    li t1, 'A'
+    bltu t0, t1, parse_hex_invalid
+    li t1, 'F'
+    bgtu t0, t1, parse_hex_invalid
+    addi t0, t0, -('A' - 10)
+    j parse_hex_add
+parse_hex_digit:
+    addi t0, t0, -'0'
+parse_hex_add:
+    slli a3, a3, 4
+    add a3, a3, t0
+    li a2, 1
+    addi a0, a0, 1
+    j parse_hex_loop
+
+parse_hex_delimiter:
+    beqz a2, parse_hex_invalid
+parse_hex_skip_trailing:
+    addi a0, a0, 1
+    lb t0, 0(a0)
+    li t1, ' '
+    beq t0, t1, parse_hex_skip_trailing
+parse_hex_done:
+    beqz a2, parse_hex_invalid
+    mv a1, a0
+    mv a0, a3
+    ret
+parse_hex_invalid:
+    li a0, 0
+    mv a1, a0
+    li a2, 0
+    ret
 
 /*
     Заполнение блока памяти заданным значением
@@ -2959,6 +3528,34 @@ msg_stat_index:         .string "index: "
 msg_stat_addr:          .string "address: "
 msg_stat_size:          .string "size: "
 msg_file_not_found:     .string "File not found\r\n"
+msg_memtest_begin:      .string "[memtest] begin start="
+msg_memtest_end:        .string " end="
+msg_memtest_step:       .string " step="
+msg_memtest_write:      .string "[memtest] write address="
+msg_memtest_read:       .string "[memtest] read address="
+msg_memtest_write_ok:   .string "[memtest] write_pass_ok\r\n"
+msg_memtest_pass:       .string "[memtest] PASS\r\n"
+msg_memtest_fault:      .string "[memtest] FAULT address="
+msg_memtest_cause:      .string " cause="
+msg_memtest_phase:      .string " phase="
+msg_memtest_mismatch:   .string "[memtest] MISMATCH address="
+msg_memtest_expected:   .string " expected="
+msg_memtest_actual:     .string " actual="
+msg_memtest_usage:      .string "Usage: memtest <start-hex> <end-hex> <step-hex>\r\n"
+msg_memtest_range:      .string "Invalid range: start >= HEAP_BASE, end > start, aligned to 8\r\n"
+msg_threadtest_begin:   .string "[threadtest] begin cooperative scheduler test\r\n"
+msg_threadtest_pass:    .string "[threadtest] PASS"
+msg_threadtest_fail:    .string "[threadtest] FAIL"
+msg_threadtest_mode:    .string " mode="
+msg_threadtest_normal:  .string "normal"
+msg_threadtest_stress:  .string "stress"
+msg_threadtest_threads: .string " threads="
+msg_threadtest_iterations: .string " iterations="
+msg_threadtest_yield_every: .string " yield_every="
+msg_threadtest_counter: .string " counter="
+msg_threadtest_switches: .string " switches="
+msg_threadtest_hart:    .string " hart="
+msg_threadtest_busy:    .string "[threadtest] BUSY\r\n"
 # ===============================================
 
 # ============= Сообщения исключений ============
@@ -2977,6 +3574,9 @@ shutdown_cmd:           .string "shutdown"
 reboot_cmd:             .string "reboot"
 ls_cmd:                 .string "ls"
 stat_cmd:               .string "stat"
+memtest_cmd:            .string "memtest"
+threadtest_cmd:         .string "threadtest"
+threadstress_cmd:       .string "threadstress"
 hex0_cmd:               .string "hex0"
 do_cmd:                 .string "do"
 view_cmd:               .string "view"
@@ -2987,6 +3587,7 @@ ps_name_undefined:      .string "undefined"
 ps_name_idle:           .string "<init>"
 ps_name_sish:           .string "SiSH" 
 ps_name_debug:          .string "debug cmd"
+ps_name_threadtest:     .string "threadtest worker"
 # ===============================================
 
 # ================= Для ошибок ==================
@@ -3012,6 +3613,25 @@ script_ptr:             .space  8
 file_ptr:               .space  8
 next_file_data:         .space  8
 heap_ptr:               .space  8
+.balign 8
+thread_test_active:     .dword  0
+thread_test_mode:       .dword  0
+thread_test_iterations: .dword  0
+thread_test_yield_every: .dword 0
+thread_test_counter:    .dword  0
+thread_test_done:       .dword  0
+thread_test_switches:   .dword  0
+thread_test_counts:     .space  (THREAD_TEST_COUNT * 8)
+thread_test_checksums:  .space  (THREAD_TEST_COUNT * 8)
+memtest_active:         .dword  0
+memtest_phase:          .dword  0
+memtest_start_addr:     .dword  0
+memtest_end_addr:       .dword  0
+memtest_step_bytes:     .dword  0
+memtest_fault_address:  .dword  0
+memtest_fault_cause:    .dword  0
+memtest_expected:       .dword  0
+memtest_actual:         .dword  0
 progress_write_bytes:   .space  8
 progress_last_write_kb: .space  8
 progress_last_heap_kb:  .space  8
