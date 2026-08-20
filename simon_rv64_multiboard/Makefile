@@ -4,7 +4,13 @@ BUILD := build
 SCRIPTS := scripts
 
 RAW_BIN := $(BUILD)/$(YOUR_RAW_BIN)
-INTERMEDIATE_FILES = $(BUILD)/boot.elf $(BUILD)/boot.bin $(BUILD)/simon.elf $(BUILD)/simon.bin $(BUILD)/simon.hex0
+INTERMEDIATE_FILES = \
+	$(BUILD)/boot.elf \
+	$(BUILD)/boot.bin \
+	$(BUILD)/simon.elf \
+	$(BUILD)/simon.bin \
+	$(BUILD)/simon.hex0
+UBOOT_RAW_COMMAND ?= ext4load mmc 0:5 $(DDR_ADDR) $(RAW_BIN); go $(DDR_ADDR)
 
 all: $(RAW_BIN)
 
@@ -23,14 +29,31 @@ $(RAW_BIN): $(BOOT_SRC) $(PAYLOAD_SRC) $(FILES_HEX0) $(BOARD_HEADER) config.mk b
 	python3 $(SCRIPTS)/bin-to-hex0.sh $(BUILD)/simon.bin $(BUILD)/simon.hex0
 	printf '\0' >> $(BUILD)/simon.hex0
 	cat $(BUILD)/boot.bin $(BUILD)/simon.hex0 $(FILES_HEX0) > $@
+	@if [ -n "$(MAX_RAW_IMAGE_SIZE)" ]; then \
+		size=$$(stat -c %s $@); \
+		max=$$(($(MAX_RAW_IMAGE_SIZE))); \
+		if [ "$$size" -ge "$$max" ]; then \
+			echo "ERROR: $@ is $$size bytes; it must stay below $(MAX_RAW_IMAGE_SIZE)" >&2; \
+			exit 1; \
+		fi; \
+	fi
 	@echo "ГОТОВО: $@"
 	@stat -c "Размер: %s bytes" $@ 2>/dev/null || stat -f "Размер: %z bytes" $@
 	@echo "BOARD=$(BOARD)"
-	@echo "U-Boot raw: ext4load mmc 0:5 $(DDR_ADDR) $@; go $(DDR_ADDR)"
+	@echo "U-Boot raw: $(UBOOT_RAW_COMMAND)"
 
 fullflash: $(RAW_BIN)
 ifeq ($(SUPPORTS_FULLFLASH),1)
-	PAYLOAD=$(RAW_BIN) WRAPPED=$(BUILD)/$(WRAPPED_BIN) FLASH=$(BUILD)/$(FULLFLASH_BIN) SPL=$(UBOOT_SPL_BIN) LOAD_ADDR=$(DDR_ADDR) IMAGE_NAME=$(UBOOT_IMAGE_NAME) python3 $(SCRIPTS)/make_uboot_flash.py
+	PAYLOAD=$(RAW_BIN) \
+	WRAPPED=$(BUILD)/$(WRAPPED_BIN) \
+	FLASH=$(BUILD)/$(FULLFLASH_BIN) \
+	SPL=$(UBOOT_SPL_BIN) \
+	LOAD_ADDR=$(DDR_ADDR) \
+	IMAGE_NAME=$(UBOOT_IMAGE_NAME) \
+	FLASH_SIZE=$(FULLFLASH_SIZE) \
+	PAYLOAD_OFFSET=$(FULLFLASH_PAYLOAD_OFFSET) \
+	READ_ADDR=$(FULLFLASH_READ_ADDR) \
+	python3 $(SCRIPTS)/make_uboot_flash.py
 	@echo "ГОТОВО FULLFLASH: $(BUILD)/$(FULLFLASH_BIN)"
 else
 	@echo "BOARD=$(BOARD) does not use fullflash. Use raw image: $(RAW_BIN)"

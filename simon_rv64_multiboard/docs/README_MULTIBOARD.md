@@ -30,6 +30,31 @@ python3 -u scripts/run_m2_qemu_test.py
 
 Образ: `build/image_qemu.bin`.
 
+## Автотест Mes/NYACC на плате
+
+После загрузки Simon закрой serial-терминал и запусти runner на Linux-компьютере:
+
+```bash
+python3 -u scripts/run_board_nyacc_test.py --port /dev/ttyUSB0 --baud 115200
+```
+
+Он ждёт `Simon says~:`, поочерёдно собирает все стадии до GNU Mes/NYACC, проверяет
+`Hello,M2-mes!` и `pprint-ok`, а затем останавливается. TCC не запускается. Более сильная
+проверка разбора `hi.c` через mescc/NYACC:
+
+```bash
+python3 -u scripts/run_board_nyacc_test.py --port /dev/ttyUSB0 --mescc-smoke
+```
+
+`--user-code-base` по умолчанию равен `0x82000000`: эта база зашита в ранний
+`hex2_riscv64.hex1` и совпадает с `USER_CODE_BASE` в профилях QEMU и Lichee.
+
+Посмотреть последовательность без подключения к UART:
+
+```bash
+python3 scripts/run_board_nyacc_test.py --dry-run
+```
+
 ## Выбор платы
 
 По умолчанию стоит:
@@ -50,8 +75,10 @@ make BOARD=banana_pi_bpi_f3_k1x TOOLCHAIN=clang
 Полная сборка full-flash:
 
 ```bash
+./scripts/pack.sh --without-tcc
 make clean
-make BOARD=lichee_th1520_fullflash TOOLCHAIN=clang fullflash
+make BOARD=lichee_th1520_fullflash TOOLCHAIN=gcc \
+  CROSS_COMPILE=/opt/riscv/bin/riscv64-unknown-elf- fullflash
 ```
 
 На выходе:
@@ -61,6 +88,9 @@ build/image_simon_lichee.bin   raw payload
 build/flash_me_lichee.bin      полный образ для dd в начало SD
 ```
 
+Образ без TCC занимает меньше места, но сохраняет всю цепочку до Mes/NYACC. Fullflash теперь
+имеет размер 8 МиБ: U-Boot/SPL лежит с `0x000000`, uImage Simon — с `0x100000`.
+
 Лить старым способом:
 
 ```bash
@@ -69,6 +99,17 @@ sync
 ```
 
 Важно: `/dev/sdX` — вся SD-карта, не раздел.
+
+После загрузки U-Boot выбери SD (`mmc 1` в штатном U-Boot Lichee) и запусти raw uImage из fullflash:
+
+```text
+mmc dev 1
+mmc read 0x30000000 0x800 0x1c00
+bootm 0x30000000
+```
+
+Точное число блоков сборка печатает после строки `U-Boot raw flash:`; его нужно использовать вместо
+примерного `0x1c00`.
 
 ## Banana Pi BPI-F3 / K1-X
 

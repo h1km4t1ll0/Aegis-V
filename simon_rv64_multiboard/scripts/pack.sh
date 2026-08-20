@@ -4,6 +4,22 @@
 
 set -e
 
+INCLUDE_TCC=1
+for arg in "$@"; do
+  case "$arg" in
+    --without-tcc)
+      INCLUDE_TCC=0
+      ;;
+    --with-tcc)
+      INCLUDE_TCC=1
+      ;;
+    *)
+      echo "usage: $0 [--with-tcc|--without-tcc]" >&2
+      exit 2
+      ;;
+  esac
+done
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/build"
@@ -22,8 +38,12 @@ NYACC="$MESDIR/vendor/nyacc"
 TCC="$S/08-tcc"
 CPU=riscv64
 
-if [ ! -d "$MES" ] || [ ! -d "$NYACC" ] || [ ! -f "$TCC/tcc.c" ]; then
-  echo "missing vendored sources under stages/07-mes/vendor or stages/08-tcc" >&2
+if [ ! -d "$MES" ] || [ ! -d "$NYACC" ]; then
+  echo "missing vendored sources under stages/07-mes/vendor" >&2
+  exit 1
+fi
+if [ "$INCLUDE_TCC" -eq 1 ] && [ ! -f "$TCC/tcc.c" ]; then
+  echo "missing TCC sources under stages/08-tcc" >&2
   exit 1
 fi
 
@@ -280,15 +300,17 @@ src/vector.c
   tr -d '\r' < "$TOOLS/hex2.c"
   printf '\0'
 
-  echo "src tcc.c"
-  cat "$TCC/bootstrap.h"
-  tr -d '\r' < "$TCC/tcc.c"
-  printf '\0'
-  for f in tcc.h libtcc.c tccpp.c tccgen.c tccelf.c tccasm.c tccrun.c tcctools.c \
-           riscv64-gen.c riscv64-link.c riscv64-asm.c riscv64-tok.h tcctok.h tcclib.h \
-           i386-asm.c elf.h stab.h stab.def libtcc.h config.h; do
-    emit "$f" "$TCC/$f"
-  done
+  if [ "$INCLUDE_TCC" -eq 1 ]; then
+    echo "src tcc.c"
+    cat "$TCC/bootstrap.h"
+    tr -d '\r' < "$TCC/tcc.c"
+    printf '\0'
+    for f in tcc.h libtcc.c tccpp.c tccgen.c tccelf.c tccasm.c tccrun.c tcctools.c \
+      riscv64-gen.c riscv64-link.c riscv64-asm.c riscv64-tok.h tcctok.h tcclib.h \
+      i386-asm.c elf.h stab.h stab.def libtcc.h config.h; do
+      emit "$f" "$TCC/$f"
+    done
+  fi
 
   echo "src MES.c"
   printf '%s\n' '#define __linux__ 1' '#define __riscv64__ 1'

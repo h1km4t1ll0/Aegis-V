@@ -538,7 +538,7 @@ output:
     call cmdcmp
     beqz a0, shutdown
 
-    la a0, buffer 
+    la a0, buffer
     la a1, reboot_cmd
     call cmdcmp
     beqz a0, reboot
@@ -554,6 +554,11 @@ output:
     beqz a0, ls
 
     la a0, buffer
+    la a1, stat_cmd
+    call cmdcmp
+    beqz a0, stat_file
+
+    la a0, buffer
     la a1, hex0_cmd
     call cmdcmp
     beqz a0, hex0
@@ -567,7 +572,7 @@ output:
     la a1, view_cmd
     call cmdcmp
     beqz a0, view
-    
+
     la a0, unknown_cmd
     call puts
     la a0, buffer
@@ -608,7 +613,7 @@ reboot:
     li a0, 1
     li a1, 0
     ecall
-    j reboot 
+    j reboot
 
 debug:
     j debug
@@ -624,13 +629,54 @@ ls_loop:
     beqz a0, ls_loop_skip
 
     mv a0, t0
-    call puts 
+    call puts
     la a0, sym_newline
     call puts
 ls_loop_skip:
     add t0, t0, t2
     j ls_loop
 ls_done:
+    j output_done
+
+stat_file:
+    la a0, buffer
+    addi a0, a0, 5
+    call find_file_by_name
+
+    li t0, -1
+    beq a0, t0, stat_file_not_found
+
+    mv s2, a0
+    li t0, 0x10
+    mul s1, s2, t0
+    li t0, FD_BASE
+    add s1, s1, t0
+
+    la a0, msg_stat_index
+    call puts
+    mv a0, s2
+    call print_dec
+    la a0, sym_newline
+    call puts
+
+    la a0, msg_stat_addr
+    call puts
+    ld a0, 0(s1)
+    call puth
+    la a0, sym_newline
+    call puts
+
+    la a0, msg_stat_size
+    call puts
+    ld a0, 8(s1)
+    call print_dec
+    la a0, sym_newline
+    call puts
+    j output_done
+
+stat_file_not_found:
+    la a0, msg_file_not_found
+    call puts
     j output_done
 
 hex0:
@@ -2909,6 +2955,10 @@ msg_bar_tokenize:       .string "tokenize "
 msg_bar_compile:        .string "compile  "
 msg_bar_write:          .string "write    "
 msg_bar_kb:             .string " KB"
+msg_stat_index:         .string "index: "
+msg_stat_addr:          .string "address: "
+msg_stat_size:          .string "size: "
+msg_file_not_found:     .string "File not found\r\n"
 # ===============================================
 
 # ============= Сообщения исключений ============
@@ -2926,6 +2976,7 @@ debug_cmd:              .string "debug"
 shutdown_cmd:           .string "shutdown"
 reboot_cmd:             .string "reboot"
 ls_cmd:                 .string "ls"
+stat_cmd:               .string "stat"
 hex0_cmd:               .string "hex0"
 do_cmd:                 .string "do"
 view_cmd:               .string "view"
