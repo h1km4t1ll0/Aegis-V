@@ -1,0 +1,15 @@
+;;; Missing ctype/string/mes symbols that tccin*.M1 calls but did not define.
+(primitive-load "tcc-mescc-boot.scm")
+
+(define (main args)
+  (compile-1 "isspace.c" "isspace.s")
+  (compile-1 "islower.c" "islower.s")
+  (compile-1 "isdigit.c" "isdigit.s")
+  (compile-1 "isxdigit.c" "isxdigit.s")
+  (compile-1 "isnumber.c" "isnumber.s")
+  (compile-1 "toupper.c" "toupper.s")
+  (compile-1 "strcat.c" "strcat.s")
+  (compile-1 "assert_msg.c" "assert_msg.s")
+  (compile-1 "abtod.c" "abtod.s")
+  (display "libc3-ok")
+  (newline))

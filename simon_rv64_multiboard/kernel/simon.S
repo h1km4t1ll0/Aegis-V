@@ -19,6 +19,15 @@
 #ifndef USER_CODE_BASE
 #define USER_CODE_BASE 0
 #endif
+#ifndef USER_CODE_END
+#define USER_CODE_END USER_CODE_BASE
+#endif
+#ifndef SLOT_CODE_SIZE
+#define SLOT_CODE_SIZE 0x800000
+#endif
+#ifndef FILE_HOLE_GUARD
+#define FILE_HOLE_GUARD 0x800000
+#endif
 #ifndef OPEN_FILES_BASE
 #define OPEN_FILES_BASE OPEN_FILES_BASE
 #endif
@@ -58,6 +67,53 @@
 #ifndef MCAUSE_TIMER_M
 #define MCAUSE_TIMER_M 0x8000000000000005
 #endif
+#ifndef MCAUSE_MSIP_M
+#define MCAUSE_MSIP_M 0x8000000000000003
+#endif
+#ifndef HART_COUNT
+#define HART_COUNT 1
+#endif
+#ifndef HART_STACK_SIZE
+#define HART_STACK_SIZE 0x1000
+#endif
+
+.macro LOAD_CUR_PROC rd
+#if HART_COUNT > 1
+        csrr \rd, mhartid
+        slli \rd, \rd, 3
+        la t6, hart_current
+        add \rd, t6, \rd
+        ld \rd, 0(\rd)
+#else
+        la \rd, current_proc
+        ld \rd, 0(\rd)
+#endif
+.endm
+
+.macro STORE_CUR_PROC rs
+#if HART_COUNT > 1
+        csrr t6, mhartid
+        slli t6, t6, 3
+        la t5, hart_current
+        add t6, t5, t6
+        sd \rs, 0(t6)
+#else
+        la t6, current_proc
+        sd \rs, 0(t6)
+#endif
+.endm
+
+.macro SET_KERNEL_SP
+#if HART_COUNT > 1
+        csrr sp, mhartid
+        li t6, HART_STACK_SIZE
+        mul sp, sp, t6
+        li t6, KERNEL_STACK_TOP
+        sub sp, t6, sp
+#else
+        li sp, KERNEL_STACK_TOP
+#endif
+.endm
 
 #define NEWLINE                 0xA
 #define HASH                    0x23
@@ -181,6 +237,7 @@ init_oft_done:
     la a0, sish
     la a1, ps_name_sish
     call create_process
+
 loop:
     j find_next
 
@@ -563,6 +620,18 @@ output:
     call cmdcmp
     beqz a0, do
 
+#if HART_COUNT > 1
+    la a0, buffer
+    la a1, spawn_cmd
+    call cmdcmp
+    beqz a0, spawn
+
+    la a0, buffer
+    la a1, wait_cmd
+    call cmdcmp
+    beqz a0, wait
+#endif
+
     la a0, buffer
     la a1, view_cmd
     call cmdcmp
@@ -632,6 +701,70 @@ ls_loop_skip:
     j ls_loop
 ls_done:
     j output_done
+
+#if USER_CODE_BASE
+/* If file_ptr would land in the user-code window, jump past it.
+ * Save t0/t1: sys_write_file still needs them after the bump. */
+file_bump_skip:
+    addi sp, sp, -16
+    sd t0, 0(sp)
+    sd t1, 8(sp)
+    li t0, USER_CODE_BASE
+    li t1, FILE_HOLE_GUARD
+    sub t0, t0, t1
+    bltu a0, t0, file_bump_skip_done
+    li t0, USER_CODE_END
+    bgeu a0, t0, file_bump_skip_done
+    mv a0, t0
+file_bump_skip_done:
+    ld t0, 0(sp)
+    ld t1, 8(sp)
+    addi sp, sp, 16
+    ret
+
+/* If the next write (a3+t5) sits in the user-code hole, move the file
+ * past USER_CODE_END. a3 = data base, t5 = offset, t6 = FD slot. */
+file_avoid_hole:
+    addi sp, sp, -48
+    sd ra, 0(sp)
+    sd t0, 8(sp)
+    sd t1, 16(sp)
+    sd a0, 24(sp)
+    sd a1, 32(sp)
+    sd a2, 40(sp)
+    add t0, a3, t5
+    li t1, USER_CODE_BASE
+    li a0, FILE_HOLE_GUARD
+    sub t1, t1, a0
+    bltu t0, t1, file_avoid_hole_done
+    li t1, USER_CODE_END
+    bgeu t0, t1, file_avoid_hole_done
+    la a0, file_ptr
+    ld a1, 0(a0)
+    addi a1, a1, 3
+    andi a1, a1, -4
+    mv a0, a1
+    call file_bump_skip
+    mv a1, a0
+    beq a1, a3, file_avoid_hole_done
+    mv a0, a3
+    mv a2, t5
+    mv a3, a1
+    call memcpy
+    sd a3, 0(t6)
+    add t0, a3, t5
+    la t1, file_ptr
+    sd t0, 0(t1)
+file_avoid_hole_done:
+    ld ra, 0(sp)
+    ld t0, 8(sp)
+    ld t1, 16(sp)
+    ld a0, 24(sp)
+    ld a1, 32(sp)
+    ld a2, 40(sp)
+    addi sp, sp, 48
+    ret
+#endif
 
 hex0:
     la s1, buffer
@@ -728,6 +861,13 @@ hex0_copy_full:
 
     la t0, file_ptr
     ld t1, 0(t0)
+#if USER_CODE_BASE
+    mv a0, t1
+    call file_bump_skip
+    mv t1, a0
+    la t0, file_ptr
+    sd t1, 0(t0)
+#endif
 
     li t0, 0x10
     mul t2, s9, t0           # descriptor index must match output name slot
@@ -828,6 +968,11 @@ hex0_copy_full:
             addi s5, s5, 15
             li t0, -16
             and s5, s5, t0
+#if USER_CODE_BASE
+            mv a0, s5
+            call file_bump_skip
+            mv s5, a0
+#endif
             la t0, file_ptr
             sd s5, 0(t0)
 
@@ -920,10 +1065,13 @@ do_parse_done:
 
     li t0, ARGS_BLOCK_BASE
     ld a0, 0x08(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
     call find_file_by_name
 
     li t1, -1
-    beq a0, t1, do_done
+    beq a0, t1, do_file_miss
 
     li t1, 0x10
     mul a0, a0, t1
@@ -934,12 +1082,39 @@ do_parse_done:
     # there so pointers in cc.bin (and later C programs) match RAM.
     ld t2, 0(a0)
     ld a2, 8(a0)
+    li t3, SLOT_CODE_SIZE
+    bltu a2, t3, do_memcpy_len_ok
+    mv a2, t3
+do_memcpy_len_ok:
+    mv s11, a2
     mv a0, t2
     li a1, USER_CODE_BASE
     call memcpy
     li a0, USER_CODE_BASE
+    add a0, a0, s11
+    li t0, USER_CODE_BASE
+    li t1, SLOT_CODE_SIZE
+    add t0, t0, t1
+    bgeu a0, t0, do_code_flush
+    sub a2, t0, a0
+    li t1, 0x2000
+    bltu a2, t1, do_zero_tail_ok
+    mv a2, t1
+do_zero_tail_ok:
+    li a1, 0
+    call memset
+do_code_flush:
+    li t0, USER_CODE_BASE
+    lw t1, 0(t0)
+    sw t1, 0(t0)
+    fence rw, rw
+    fence.i
+    li a0, USER_CODE_BASE
 #else
     ld a0, 0(a0)
+#endif
+#if HART_COUNT > 1
+    call oft_unlock
 #endif
 
     li t0, ARGS_BLOCK_BASE
@@ -960,9 +1135,18 @@ do_parse_done:
     call create_user_process
     la t0, user_proc
     sd a0, 0(t0)
+    mv s0, a0
+#if HART_COUNT > 1
+    li t1, HEAP_BASE
+    sd t1, 0xd0(s0)
+    sd t1, 0xd8(s0)
+    li t1, HEAP_END
+    sd t1, 0xe0(s0)
+    li t1, USER_CODE_BASE
+    sd t1, 0xe8(s0)
+#endif
 
     # Без таймера новый процесс сам не запустится.
-    # Чистим ввод и вручную отдаём управление планировщику.
     la a0, buffer
     li a1, 0
     li a2, BUFFER_SIZE
@@ -972,10 +1156,139 @@ do_parse_done:
     la t0, buffer_index
     sb zero, 0(t0)
 
-    j find_next
+    STORE_CUR_PROC s0
+    mv t0, s0
+    j resume_proc_context
 
+do_file_miss:
+#if HART_COUNT > 1
+    call oft_unlock
+#endif
 do_done:
     j output_done
+
+#if HART_COUNT > 1
+spawn:
+    li s0, 1
+spawn_find:
+    li t0, HART_COUNT
+    bge s0, t0, spawn_full
+    slli t1, s0, 3
+    la t2, hart_current
+    add t1, t2, t1
+    ld t1, 0(t1)
+    beqz t1, spawn_got
+    ld t2, 8(t1)
+    beqz t2, spawn_got
+    addi s0, s0, 1
+    j spawn_find
+spawn_full:
+    la a0, msg_spawn_full
+    call puts
+    j output_done
+spawn_got:
+    slli t0, s0, 3
+    la t1, slot_args_tab
+    add t1, t1, t0
+    ld s5, 0(t1)
+    mv a0, s5
+    li a1, 0
+    li a2, ARGS_BLOCK_SIZE
+    call memset
+    la s1, buffer
+    addi s1, s1, 6
+    mv s2, s5
+    addi s2, s2, ARGV_STRINGS_OFF
+    mv s3, s5
+    addi s3, s3, 8
+    li s4, 0
+spawn_parse_loop:
+    li t0, ARGV_MAX
+    bge s4, t0, spawn_parse_done
+    lb t0, 0(s1)
+    beqz t0, spawn_parse_done
+    sd s2, 0(s3)
+    addi s3, s3, 8
+spawn_copy_word:
+    lb t0, 0(s1)
+    beqz t0, spawn_word_end
+    li t1, ' '
+    beq t0, t1, spawn_word_end
+    sb t0, 0(s2)
+    addi s1, s1, 1
+    addi s2, s2, 1
+    j spawn_copy_word
+spawn_word_end:
+    sb zero, 0(s2)
+    addi s2, s2, 1
+    addi s4, s4, 1
+    lb t0, 0(s1)
+    beqz t0, spawn_parse_done
+    addi s1, s1, 1
+    j spawn_parse_loop
+spawn_parse_done:
+    beqz s4, do_done
+    sd s4, 0(s5)
+    sd zero, 0(s3)
+    ld a0, 8(s5)
+    call oft_lock
+    call find_file_by_name
+    li t1, -1
+    beq a0, t1, spawn_file_miss
+    li t1, 0x10
+    mul a0, a0, t1
+    li t1, FD_BASE
+    add a0, a0, t1
+    ld t2, 0(a0)
+    ld a2, 8(a0)
+    li t3, SLOT_CODE_SIZE
+    bltu a2, t3, 1f
+    mv a2, t3
+1:
+    mv a0, t2
+    slli t0, s0, 3
+    la t1, slot_code_tab
+    add t1, t1, t0
+    ld a1, 0(t1)
+    addi sp, sp, -16
+    sd a1, 0(sp)
+    call memcpy
+    ld a0, 0(sp)
+    addi sp, sp, 16
+    call oft_unlock
+    fence rw, rw
+    fence.i
+    sfence.vma
+    fence.i
+    ld a1, 8(s5)
+    mv a2, s5
+    call create_user_process
+    slli t0, s0, 3
+    la t1, slot_heap_tab
+    add t1, t1, t0
+    ld t1, 0(t1)
+    sd t1, 0xd0(a0)
+    sd t1, 0xd8(a0)
+    la t1, slot_heap_end_tab
+    add t1, t1, t0
+    ld t1, 0(t1)
+    sd t1, 0xe0(a0)
+    la t1, slot_code_tab
+    add t1, t1, t0
+    ld t1, 0(t1)
+    sd t1, 0xe8(a0)
+    mv a1, a0
+    mv a0, s0
+    call smp_release_once
+    call hart_kick
+    j output_done
+spawn_file_miss:
+    call oft_unlock
+    j do_done
+wait:
+    call smp_wait
+    j output_done
+#endif
 
 view:
     la s1, buffer
@@ -1037,14 +1350,29 @@ view_done:
 
 # ====================== УТИЛИТЫ ======================
 .align 4
+.global yield
 yield:
 #if BOARD_TRAP_MODE == BOARD_TRAP_M
     csrw mscratch, t0
 #else
     csrw sscratch, t0
 #endif
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1 && BOARD_TRAP_MODE == BOARD_TRAP_M
+    csrr t0, mcause
+    li t1, MCAUSE_MSIP_M
+    bne t0, t1, yield_not_msip
+    csrr t0, mhartid
+    li t1, CLINT_BASE
+    slli t2, t0, 2
+    add t1, t1, t2
+    sw zero, 0(t1)
+    bnez t0, secondary_idle
+    csrr t0, mscratch
+    mret
+yield_not_msip:
+    csrr t0, mscratch
+#endif
+    LOAD_CUR_PROC t0
     beqz t0, yield_no_save
 
     sd sp, 0x10(t0)
@@ -1141,16 +1469,14 @@ yield_processes:
     ld t1, 0x8(t0)
     beqz t1, find_next
 
-    la t1, current_proc
-    sd t0, 0(t1)
+    STORE_CUR_PROC t0
 
     # Banana Pi K1-X: QEMU CLINT timer rearm отключён.
 
     j resume_proc_context
 
 syscall_entry:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     beqz t0, syscall_no_proc
 
     sd sp, 0x10(t0)
@@ -1173,7 +1499,7 @@ syscall_entry:
     sd a3, 0x98(t0); sd a4, 0xa0(t0); sd a5, 0xa8(t0)
     sd a6, 0xb0(t0); sd a7, 0xb8(t0)
 
-    li sp, KERNEL_STACK_TOP
+    SET_KERNEL_SP
 
     # === Диспетчер ===
     li t1, SYS_EXIT
@@ -1224,21 +1550,21 @@ syscall_no_proc:
     j kernel_panic
 
 syscall_return_zero:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     sd zero, 0x80(t0)
     j syscall_resume_current
 
 syscall_return_minus_one:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     li t1, -1
     sd t1, 0x80(t0)
     j syscall_resume_current
 
 syscall_resume_current:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_unlock_if_held
+#endif
+    LOAD_CUR_PROC t0
 
     # Banana Pi K1-X: QEMU CLINT timer rearm отключён.
 
@@ -1311,12 +1637,39 @@ syscall_resume_restore_regs:
     Помечает процесс как UNUSED и снимает флаг user_running.
 */
 sys_exit:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     sd zero, 0x8(t0)
+
+#if HART_COUNT > 1
+    csrr t2, mhartid
+    bnez t2, sys_exit_worker
+#endif
 
     la t1, user_running
     sd zero, 0(t1)
+
+#if HART_COUNT > 1
+    call oft_unlock_if_held
+    li t0, 1
+sys_exit_check_workers:
+    li t1, HART_COUNT
+    bge t0, t1, sys_exit_wipe
+    slli t2, t0, 3
+    la t3, hart_current
+    add t2, t3, t2
+    ld t2, 0(t2)
+    beqz t2, sys_exit_check_next
+    ld t3, 8(t2)
+    bnez t3, sys_exit_skip_wipe
+sys_exit_check_next:
+    addi t0, t0, 1
+    j sys_exit_check_workers
+sys_exit_skip_wipe:
+    li t6, 0
+    STORE_CUR_PROC t6
+    j output_done
+sys_exit_wipe:
+#endif
 
     li t1, OPEN_FILES_BASE
     li t2, OPEN_FILES_END
@@ -1330,14 +1683,22 @@ sys_exit_close_loop:
     j sys_exit_close_loop
 sys_exit_close_done:
 
-    la t1, current_proc
-    sd zero, 0(t1)
+    li t6, 0
+    STORE_CUR_PROC t6
 
     # Banana Pi port: no CLINT timer, so the interactive `do` command
     # gives control to the user process manually.  After user exit we must
     # return directly to SiSH, not to scheduler/find_next, otherwise SiSH is
     # restarted from its entry point and embedded files can be parsed again.
     j output_done
+
+#if HART_COUNT > 1
+sys_exit_worker:
+    call oft_unlock_if_held
+    li t6, 0
+    STORE_CUR_PROC t6
+    j secondary_idle
+#endif
 
 /*
     Системный вызов write (64)
@@ -1351,8 +1712,7 @@ sys_exit_close_done:
     a0 - количество записанных байт
 */
 sys_write:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     ld t2, 0x88(t0)
     ld t3, 0x90(t0)
@@ -1406,6 +1766,17 @@ sys_write_done:
     t1 - fd, t2 - буфер, t3 - количество байт
 */
 sys_write_file:
+#if HART_COUNT > 1
+    addi sp, sp, -32
+    sd t1, 0(sp)
+    sd t2, 8(sp)
+    sd t3, 16(sp)
+    call oft_lock
+    ld t1, 0(sp)
+    ld t2, 8(sp)
+    ld t3, 16(sp)
+    addi sp, sp, 32
+#endif
     addi t1, t1, -3
     li t4, OPEN_FILE_SIZE
     mul t1, t1, t4
@@ -1434,6 +1805,10 @@ sys_write_file_loop:
 
     lb a6, 0(t2)
     add a7, a3, t5
+#if USER_CODE_BASE
+    call file_avoid_hole
+    add a7, a3, t5
+#endif
     sb a6, 0(a7)
 
     addi t5, t5, 1
@@ -1443,6 +1818,11 @@ sys_write_file_loop:
     la a6, file_ptr
     ld a7, 0(a6)
     addi a7, a7, 1
+#if USER_CODE_BASE
+    mv a0, a7
+    call file_bump_skip
+    mv a7, a0
+#endif
     sd a7, 0(a6)
 sys_write_file_no_grow:
 
@@ -1459,8 +1839,7 @@ sys_write_file_done:
     add t1, t1, a5
     sd t1, 0(t0)
 
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     sd a5, 0x80(t0)
 
     mv a0, t1
@@ -1479,8 +1858,10 @@ sys_write_file_done:
     a0 - файловый дескриптор (>= 3) или -1 при ошибке
 */
 sys_openat:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
+    LOAD_CUR_PROC t0
 
     ld a0, 0x88(t0)
     ld t1, 0x90(t0)
@@ -1519,8 +1900,7 @@ sys_openat_rdonly:
 
     addi a0, a0, 3
 
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     sd a0, 0x80(t0)
     j syscall_resume_current
 
@@ -1552,6 +1932,12 @@ sys_openat_copy_name_done:
     ld t1, 0(t0)
     addi t1, t1, 3
     andi t1, t1, -4
+#if USER_CODE_BASE
+    mv a0, t1
+    call file_bump_skip
+    mv t1, a0
+    la t0, file_ptr
+#endif
     sd t1, 0(t0)
 
     ld t2, 8(sp)
@@ -1594,8 +1980,7 @@ sys_openat_creat_open:
 
     addi sp, sp, 32
 
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     sd a0, 0x80(t0)
     j syscall_resume_current
 
@@ -1617,8 +2002,10 @@ syscall_openat_fail:
     a0 - 0 при успехе, -1 при ошибке
 */
 sys_close:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
 
     li t2, 3
@@ -1655,8 +2042,10 @@ sys_close:
     a0 - количество прочитанных байт (0 = конец файла)
 */
 sys_read:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     ld t2, 0x88(t0)
     ld t3, 0x90(t0)
@@ -1731,8 +2120,10 @@ sys_read_eof:
     a0 - новое смещение
 */
 sys_lseek:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     ld t2, 0x88(t0)
     ld t3, 0x90(t0)
@@ -1794,10 +2185,18 @@ sys_lseek_end:
     a0 - текущее (или новое) значение конца кучи
 */
 sys_brk:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
 
+#if HART_COUNT > 1
+    ld t3, 0xd0(t0)
+    beqz t1, sys_brk_return_current
+    ld t4, 0xd8(t0)
+    bltu t1, t4, sys_brk_return_current
+    ld t4, 0xe0(t0)
+    bgeu t1, t4, sys_brk_return_current
+    mv t2, t0
+#else
     la t2, heap_ptr
     ld t3, 0(t2)
 
@@ -1807,6 +2206,7 @@ sys_brk:
     bltu t1, t4, sys_brk_return_current
     li t4, HEAP_END
     bgeu t1, t4, sys_brk_return_current
+#endif
 
     # v8: emulate fresh zeroed heap for each user program.
     # M0 allocates structs with malloc and leaves fields like TYPE/EXPRESSION
@@ -1843,7 +2243,11 @@ sys_brk_zero_tail:
 sys_brk_zero_new_done:
 #endif
 
+#if HART_COUNT > 1
+    sd t1, 0xd0(t2)
+#else
     sd t1, 0(t2)
+#endif
     sd t1, 0x80(t0)
 
     la t0, progress_last_label
@@ -1875,8 +2279,7 @@ sys_brk_return_current:
     uname (160): fill Linux/riscv64 utsname.
 */
 sys_clock_gettime:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x88(t0)
     beqz t1, syscall_return_minus_one
     sd zero, 0(t1)
@@ -1884,8 +2287,7 @@ sys_clock_gettime:
     j syscall_return_zero
 
 sys_gettimeofday:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     beqz t1, syscall_return_minus_one
     sd zero, 0(t1)
@@ -1893,8 +2295,7 @@ sys_gettimeofday:
     j syscall_return_zero
 
 sys_getcwd:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     ld t2, 0x88(t0)
     li t3, 2
@@ -1908,8 +2309,7 @@ sys_getcwd:
     j syscall_resume_current
 
 sys_uname:
-    la t0, current_proc
-    ld t0, 0(t0)
+    LOAD_CUR_PROC t0
     ld t1, 0x80(t0)
     beqz t1, syscall_return_minus_one
     addi sp, sp, -16
@@ -1949,8 +2349,10 @@ sys_uname_fill:
     j syscall_return_zero
 
 sys_faccessat:
-    la t0, current_proc
-    ld t0, 0(t0)
+#if HART_COUNT > 1
+    call oft_lock
+#endif
+    LOAD_CUR_PROC t0
     ld a0, 0x88(t0)
     call find_file_by_name
     li t1, -1
@@ -2041,19 +2443,18 @@ alloc_open_file_full:
     ret
 
 find_next:
-    la t0, current_proc
-    ld t1, 0(t0)
+    LOAD_CUR_PROC t1
     mv t2, t1 
     bnez t1, search_loop
 
     li t1, PROC_FIRST_RUNNABLE
     mv t2, t1
-    sd t1, 0(t0)
+    STORE_CUR_PROC t1
 search_loop:    
     li t3, 0x1000
     add t2, t2, t3
-    li t4, FILE_NAME_BASE
-    beq t2, t4, search_loop_overflow
+    li t4, PROC_END
+    bgeu t2, t4, search_loop_overflow
 
     ld t3, 0x8(t2)
     li t4, 0xffff
@@ -2079,12 +2480,12 @@ search_loop_idle:
 
 found_task:
     mv t1, t2
-    la t0, current_proc
-    sd t1, 0(t0)
+    STORE_CUR_PROC t1
     mv t0, t1
 
     # Banana Pi K1-X: QEMU CLINT timer rearm отключён.
 
+.global resume_proc_context
 resume_proc_context:
     ld t1, 0xc0(t0)
 #if BOARD_TRAP_MODE == BOARD_TRAP_M
@@ -2121,8 +2522,7 @@ resume_proc_context:
 #else
     csrr t0, sscratch
     # SPP=1 -> S-mode, SPP=0 -> U-mode.
-    la t1, current_proc
-    ld t1, 0(t1)
+    LOAD_CUR_PROC t1
     ld t2, 0xc8(t1)
     bnez t2, 1f
     li t2, 0x100
@@ -2222,8 +2622,7 @@ switch_context:
     sd s10, 0x70(a0)
     sd s11, 0x78(a0)
 
-    la t0, current_proc
-    sd a1, 0(t0)
+    STORE_CUR_PROC a1
 
     ld sp, 0x10(a1)
     ld ra, 0x18(a1)
@@ -2297,6 +2696,42 @@ trap_panic:
     la a0, sym_newline
     call puts
 
+    LOAD_CUR_PROC t0
+    beqz t0, trap_panic_no_pcb
+
+    la a0, msg_trap_ra
+    call puts
+    LOAD_CUR_PROC t0
+    ld a0, 0x18(t0)
+    call puth
+    la a0, sym_newline
+    call puts
+
+    la a0, msg_trap_sp
+    call puts
+    LOAD_CUR_PROC t0
+    ld a0, 0x10(t0)
+    call puth
+    la a0, sym_newline
+    call puts
+
+    la a0, msg_trap_a0
+    call puts
+    LOAD_CUR_PROC t0
+    ld a0, 0x80(t0)
+    call puth
+    la a0, sym_newline
+    call puts
+
+    la a0, msg_trap_a1
+    call puts
+    LOAD_CUR_PROC t0
+    ld a0, 0x88(t0)
+    call puth
+    la a0, sym_newline
+    call puts
+
+trap_panic_no_pcb:
     la a0, msg_trap_panic
     j kernel_panic
 
@@ -2594,6 +3029,10 @@ free_slot_file_name_found:
 
 # a0 = current, a1 = total, a2 = label string
 progress_bar:
+#if HART_COUNT > 1
+    csrr t0, mhartid
+    bnez t0, progress_bar_ret
+#endif
     beqz a1, progress_bar_ret
     li t0, 4096
     bltu a1, t0, progress_bar_ret
@@ -2697,6 +3136,10 @@ progress_bar_ret:
 
 # a0 = kilobytes written so far
 progress_write_kb:
+#if HART_COUNT > 1
+    csrr t0, mhartid
+    bnez t0, progress_write_kb_skip
+#endif
     addi sp, sp, -16
     sd ra, 0(sp)
     sd s0, 8(sp)
@@ -2725,9 +3168,17 @@ progress_write_kb_done:
     ld s0, 8(sp)
     addi sp, sp, 16
     ret
+#if HART_COUNT > 1
+progress_write_kb_skip:
+    ret
+#endif
 
 # a0 = heap kilobytes
 progress_heap_kb:
+#if HART_COUNT > 1
+    csrr t0, mhartid
+    bnez t0, progress_heap_kb_skip
+#endif
     addi sp, sp, -16
     sd ra, 0(sp)
     sd s0, 8(sp)
@@ -2759,6 +3210,10 @@ progress_heap_kb_done:
     ld s0, 8(sp)
     addi sp, sp, 16
     ret
+#if HART_COUNT > 1
+progress_heap_kb_skip:
+    ret
+#endif
 
 progress_pad:
     addi sp, sp, -16
@@ -2828,11 +3283,15 @@ getc:
     addi sp, sp, 16
     ret
 
+.global puts
 puts:
-    addi sp, sp, -24
-    sd t1, 0(sp)
-    sd t2, 8(sp)
-    sd t3, 16(sp)
+    addi sp, sp, -48
+    sd ra, 40(sp)
+    sd t0, 0(sp)
+    sd t1, 8(sp)
+    sd t2, 16(sp)
+    sd t3, 24(sp)
+    call uart_lock
 
     mv t1, a0
     li t2, UART0_BASE
@@ -2847,11 +3306,13 @@ puts_wait_tx:
     addi t1, t1, 1
     j puts_loop
 puts_done:
-
-    ld t1, 0(sp)
-    ld t2, 8(sp)
-    ld t3, 16(sp)
-    addi sp, sp, 24
+    call uart_unlock
+    ld t0, 0(sp)
+    ld t1, 8(sp)
+    ld t2, 16(sp)
+    ld t3, 24(sp)
+    ld ra, 40(sp)
+    addi sp, sp, 48
     ret
 
 puth:
@@ -2918,6 +3379,10 @@ msg_trap_stval:         .string "[TRAP] stval  = "
 msg_trap_mcause:        .string "[TRAP] mcause = "
 msg_trap_mepc:          .string "[TRAP] mepc   = "
 msg_trap_mtval:         .string "[TRAP] mtval  = "
+msg_trap_ra:            .string "[TRAP] ra     = "
+msg_trap_sp:            .string "[TRAP] sp     = "
+msg_trap_a0:            .string "[TRAP] a0     = "
+msg_trap_a1:            .string "[TRAP] a1     = "
 msg_trap_panic:         .string "Unhandled exception\r\n"
 # ===============================================
 
@@ -2928,6 +3393,8 @@ reboot_cmd:             .string "reboot"
 ls_cmd:                 .string "ls"
 hex0_cmd:               .string "hex0"
 do_cmd:                 .string "do"
+spawn_cmd:              .string "spawn"
+wait_cmd:               .string "wait"
 view_cmd:               .string "view"
 # ===============================================
 
@@ -2946,6 +3413,7 @@ msg_kernel_panic_1:     .string "Buffer overflowed\r\n"
 msg_kernel_panic_2:     .string "Out of memory\r\n"
 msg_kernel_panic_3:     .string "No free process slots\r\n"
 msg_kernel_panic_4:     .string "Where are all the processes?\r\n"
+msg_spawn_full:         .string "No free hart\r\n"
 msg_syscall_no_proc:    .string "Syscall without current process\r\n"
 uts_sysname:            .string "Linux"
 uts_nodename:           .string "simon"
@@ -2957,6 +3425,7 @@ rec_kernel_panic_0:     .string "Please, press r to reboot\r\n"
 rec_kernel_panic_1:     .string "...or press s to shutdown.\r\n"
 # ===============================================
 
+.align 3
 script_ptr:             .space  8
 file_ptr:               .space  8
 next_file_data:         .space  8

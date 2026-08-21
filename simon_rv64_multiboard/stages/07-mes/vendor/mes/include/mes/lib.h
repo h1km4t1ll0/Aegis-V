@@ -53,7 +53,9 @@ int fdputs (char const *s, int fd);
 int fdungetc (int c, int fd);
 char *_getcwd (char *buffer, size_t size);
 int ioctl3 (int filedes, size_t command, long data);
+#if !SYSTEM_LIBC
 int isnumber (int c, int base);
+#endif
 int mes_open (char const *file_name, int flags, int mask);
 int _open2 (char const *file_name, int flags);
 int _open3 (char const *file_name, int flags, int mask);
@@ -69,9 +71,9 @@ void *__memcpy (void *dest, void const *src, size_t n);
 void *__memmove (void *dest, void const *src, size_t n);
 void *__memset (void *s, int c, size_t n);
 
-#if !SYSTEM_LIBC
 void __assert_fail (char const *s, char const *file, unsigned line,
                     char const *function);
+#if !SYSTEM_LIBC
 ssize_t __buffered_read (int filedes, void *buffer, size_t size);
 size_t __buffered_read_clear (int filedes);
 long brk (void *addr);

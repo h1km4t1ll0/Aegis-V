@@ -83,46 +83,56 @@
 	 (pat-v (assq-ref mach 'pat-v))
 	 (xct-v (make-xct (assq-ref mach 'act-v)))
 	 (start (assq-ref (assq-ref mach 'mtab) '$start)))
+    ;; Iterative: Mes does not TCO named-let + cond/let*, so the old
+    ;; (loop args ...) grew ~2 VM frames per token and died on tccpp.c.
     (lambda* (lexr #:key debug)
-      (let loop ((state (list 0))	; state stack
-		 (stack (list '$@))	; semantic value stack
-		 (nval #f)		; non-terminal from prev reduction
-		 (lval #f))		; lexical value (from lex'er)
-	(cond
-	 ((and interactive nval 
-	       (eqv? (car nval) start)
-	       (zero? (car state)))     ; done
-	  (cdr nval))
-	 ((not (or nval lval))
-	  (if (eqv? '$default (caar (vector-ref pat-v (car state))))
-	      (loop state stack (cons '$default #f) lval) ; default reduction
-	      (loop state stack nval (lexr))))		  ; reload
-	 (else
-	  (let* ((laval (or nval lval))
-		 (tval (car laval))
-		 (sval (cdr laval))
-		 (stxl (vector-ref pat-v (car state)))
-		 (stx (or (assq-ref stxl tval) (assq-ref stxl '$default)
-			  (cons 'error #f))))
-	    (if debug (dmsg/s (car state) (if nval tval sval) stx))
-	    (cond
-	     ((eq? 'error (car stx))	; error ???
-	      (if (memq tval skip-if-unexp)
-		  (loop state stack #f #f)
-		  (parse-error state laval)))
-	     ((eq? 'reduce (car stx))	; reduce
-	      (let* ((gx (cdr stx))
-		     (gl (vector-ref len-v gx))
-		     ($$ (apply (vector-ref xct-v gx) stack)))
-		(loop (list-tail state gl)
-		      (list-tail stack gl)
-		      (cons (vector-ref rto-v gx) $$)
-		      lval)))
-	     ((eq? 'shift (car stx))	; shift
-	      (loop (cons (cdr stx) state) (cons sval stack)
-		    #f (if nval lval #f)))
-	     (else			; accept
-	      (car stack))))))))))
+      (let ((state (list 0))
+	    (stack (list '$@))
+	    (nval #f)
+	    (lval #f)
+	    (running #t)
+	    (result #f))
+	(let iter ()
+	  (cond
+	   ((and interactive nval
+		 (eqv? (car nval) start)
+		 (zero? (car state)))
+	    (set! running #f)
+	    (set! result (cdr nval)))
+	   ((not (or nval lval))
+	    (if (eqv? '$default (caar (vector-ref pat-v (car state))))
+		(set! nval (cons '$default #f))
+		(set! lval (lexr))))
+	   (else
+	    (let* ((laval (or nval lval))
+		   (tval (car laval))
+		   (sval (cdr laval))
+		   (stxl (vector-ref pat-v (car state)))
+		   (stx (or (assq-ref stxl tval) (assq-ref stxl '$default)
+			    (cons 'error #f)))
+		   (keep-lval (if nval lval #f)))
+	      (if debug (dmsg/s (car state) (if nval tval sval) stx))
+	      (cond
+	       ((eq? 'error (car stx))
+		(if (memq tval skip-if-unexp)
+		    (begin (set! nval #f) (set! lval #f))
+		    (parse-error state laval)))
+	       ((eq? 'reduce (car stx))
+		(let* ((gx (cdr stx))
+		       (gl (vector-ref len-v gx))
+		       ($$ (apply (vector-ref xct-v gx) stack)))
+		  (set! state (list-tail state gl))
+		  (set! stack (list-tail stack gl))
+		  (set! nval (cons (vector-ref rto-v gx) $$))))
+	       ((eq? 'shift (car stx))
+		(set! state (cons (cdr stx) state))
+		(set! stack (cons sval stack))
+		(set! nval #f)
+		(set! lval keep-lval))
+	       (else
+		(set! running #f)
+		(set! result (car stack)))))))
+	  (if running (iter) result))))))
 
 (define* (make-lalr-parser/num mach #:key (skip-if-unexp '()) interactive)
   (let* ((len-v (assq-ref mach 'len-v))
@@ -132,45 +142,54 @@
 	 (ntab (assq-ref mach 'ntab))
 	 (start (assq-ref (assq-ref mach 'mtab) '$start)))
     (lambda* (lexr #:key debug)
-      (let loop ((state (list 0))	; state stack
-		 (stack (list '$@))	; semantic value stack
-		 (nval #f)		; non-terminal from prev reduction
-		 (lval #f))		; lexical value (from lex'r)
-	(cond
-	 ((and interactive nval
-	       (eqv? (car nval) start)
-	       (zero? (car state)))     ; done
-	  (cdr nval))
-	 ((not (or nval lval))
-	  (if (eqv? $default (caar (vector-ref pat-v (car state))))
-	      (loop state stack (cons $default #f) lval) ; default reduction
-	      (loop state stack nval (lexr))))		 ; reload
-	 (else
-	  (let* ((laval (or nval lval))
-		 (tval (car laval))
-		 (sval (cdr laval))
-		 (stxl (vector-ref pat-v (car state)))
-		 (stx (or (assq-ref stxl tval)
-			  (and (not (memq tval skip-if-unexp))
-			       (assq-ref stxl $default)))))
-	    (if debug (dmsg/n (car state) (if nval tval sval) stx ntab))
-	    (cond
-	     ((eq? #f stx)		; error
-	      (if (memq tval skip-if-unexp)
-		  (loop state stack #f #f)
-		  (parse-error state laval)))
-	     ((negative? stx)		; reduce
-	      (let* ((gx (abs stx))
-		     (gl (vector-ref len-v gx))
-		     ($$ (apply (vector-ref xct-v gx) stack)))
-		(loop (list-tail state gl)
-		      (list-tail stack gl)
-		      (cons (vector-ref rto-v gx) $$)
-		      lval)))
-	     ((positive? stx)		; shift
-	      (loop (cons stx state) (cons sval stack) #f (if nval lval #f)))
-	     (else			; accept
-	      (car stack))))))))))
+      (let ((state (list 0))
+	    (stack (list '$@))
+	    (nval #f)
+	    (lval #f)
+	    (running #t)
+	    (result #f))
+	(let iter ()
+	  (cond
+	   ((and interactive nval
+		 (eqv? (car nval) start)
+		 (zero? (car state)))
+	    (set! running #f)
+	    (set! result (cdr nval)))
+	   ((not (or nval lval))
+	    (if (eqv? $default (caar (vector-ref pat-v (car state))))
+		(set! nval (cons $default #f))
+		(set! lval (lexr))))
+	   (else
+	    (let* ((laval (or nval lval))
+		   (tval (car laval))
+		   (sval (cdr laval))
+		   (stxl (vector-ref pat-v (car state)))
+		   (stx (or (assq-ref stxl tval)
+			    (and (not (memq tval skip-if-unexp))
+				 (assq-ref stxl $default))))
+		   (keep-lval (if nval lval #f)))
+	      (if debug (dmsg/n (car state) (if nval tval sval) stx ntab))
+	      (cond
+	       ((eq? #f stx)
+		(if (memq tval skip-if-unexp)
+		    (begin (set! nval #f) (set! lval #f))
+		    (parse-error state laval)))
+	       ((negative? stx)
+		(let* ((gx (abs stx))
+		       (gl (vector-ref len-v gx))
+		       ($$ (apply (vector-ref xct-v gx) stack)))
+		  (set! state (list-tail state gl))
+		  (set! stack (list-tail stack gl))
+		  (set! nval (cons (vector-ref rto-v gx) $$))))
+	       ((positive? stx)
+		(set! state (cons stx state))
+		(set! stack (cons sval stack))
+		(set! nval #f)
+		(set! lval keep-lval))
+	       (else
+		(set! running #f)
+		(set! result (car stack)))))))
+	  (if running (iter) result))))))
 
 ;; @deffn {Procedure} make-lalr-parser mach [options] => parser
 ;; Generate a procedure for parsing a language, where @var{mach} is

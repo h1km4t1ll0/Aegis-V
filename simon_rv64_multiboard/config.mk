@@ -13,7 +13,7 @@ BOARD ?= lichee_th1520_fullflash
 include boards/$(BOARD).mk
 
 BOOT_SRC := kernel/boot.S
-PAYLOAD_SRC := kernel/simon.S
+PAYLOAD_SRC := kernel/simon.S kernel/smp.S
 FILES_HEX0 ?= build/files.pl
 
 TOOLCHAIN ?= clang

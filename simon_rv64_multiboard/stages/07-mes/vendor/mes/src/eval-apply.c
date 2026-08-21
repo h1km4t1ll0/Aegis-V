@@ -60,7 +60,11 @@ struct scm *
 check_apply (struct scm *f, struct scm *e)      /*:((internal)) */
 {
   char *type = 0;
-  if (f == cell_f || f == cell_t)
+  if (f == 0)
+    type = "null";
+  if (f == cell_f)
+    type = "bool";
+  if (f == cell_t)
     type = "bool";
   if (f == cell_nil)
     type = "nil";
@@ -68,16 +72,20 @@ check_apply (struct scm *f, struct scm *e)      /*:((internal)) */
     type = "*unspecified*";
   if (f == cell_undefined)
     type = "*undefined*";
-  if (f->type == TCHAR)
-    type = "char";
-  if (f->type == TNUMBER)
-    type = "number";
-  if (f->type == TSTRING)
-    type = "string";
-  if (f->type == TSTRUCT && builtin_p (f) == cell_f)
-    type = "#<...>";
-  if (f->type == TBROKEN_HEART)
-    type = "<3";
+  if (f != 0)
+    {
+      if (f->type == TCHAR)
+        type = "char";
+      if (f->type == TNUMBER)
+        type = "number";
+      if (f->type == TSTRING)
+        type = "string";
+      if (f->type == TSTRUCT)
+        if (builtin_p (f) == cell_f)
+          type = "#<...>";
+      if (f->type == TBROKEN_HEART)
+        type = "<3";
+    }
 
   if (type != 0)
     {

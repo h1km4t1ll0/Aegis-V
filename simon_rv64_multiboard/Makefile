@@ -39,7 +39,7 @@ endif
 qemu:
 	$(MAKE) BOARD=qemu_virt clean_tmp
 	$(MAKE) BOARD=qemu_virt
-	qemu-system-riscv64 -M virt -bios $(BUILD)/image_qemu.bin -monitor stdio
+	qemu-system-riscv64 -M virt -smp 4 -m 6G -nographic -bios $(BUILD)/image_qemu.bin
 
 prepare-files:
 	$(SCRIPTS)/pack.sh

@@ -31,6 +31,7 @@
 #include <time.h>
 
 int g_dump_filedes;
+long g_arena_bucket;
 
 char *
 cell_bytes (struct scm *x)
@@ -55,12 +56,27 @@ gc_init ()
 #elif ! __M2__
   ARENA_SIZE = 2400000;         /* 32b: 24MiB, 64b: 48 MiB */
 #else
-  ARENA_SIZE = 20000000;
+  /* mes-m2 realloc() always malloc+copy+free, so gc_up_arena cannot
+   * move the arena. Pre-size cells==MAX and malloc 2x for to-space.
+   * 35M cells * 2 was ~1.74GiB and crowded QEMU 2G (files smashed
+   * mes.bin). tccpp live ~1.8M; 12M * 2 is ~0.63GiB with headroom.
+   * Split the literal: M2 immediates cannot be 8 digits. */
+  ARENA_SIZE = 12000;
+  ARENA_SIZE = ARENA_SIZE * 1000;
 #endif
+  /* NYACC c99 on tccpp.c: STACK_SIZE is slots (5 per frame).
+   * 20000 overflowed; 100000 still overflowed at the same depth — do not
+   * rely on a 7-digit M2 immediate. 20000 * 50 = 1e6 slots = 200k frames. */
   STACK_SIZE = 20000;
+  STACK_SIZE = STACK_SIZE * 50;
 
   JAM_SIZE = 10;
+#if __M2__
+  MAX_ARENA_SIZE = 12000;
+  MAX_ARENA_SIZE = MAX_ARENA_SIZE * 1000;
+#else
   MAX_ARENA_SIZE = 10000000;
+#endif
   GC_SAFETY = 2000;
   MAX_STRING = 524288;
 
@@ -87,11 +103,27 @@ gc_init ()
     MAX_STRING = atoi (p);
 
   long arena_bytes = (ARENA_SIZE + JAM_SIZE) * sizeof (struct scm);
+  /* mes-m2 realloc is malloc+copy+free and cannot move the arena, so
+   * pre-allocate to-space. SYSTEM_LIBC gc_flip copies in-place; *2
+   * only burns host RAM (Docker was 2.5GiB). */
+#if __M2__
+  long alloc_bytes = (arena_bytes * 2) + (STACK_SIZE * sizeof (struct scm));
+#else
   long alloc_bytes = arena_bytes + (STACK_SIZE * sizeof (struct scm));
+#endif
 
   g_arena = malloc (alloc_bytes);
+  if (g_arena == 0)
+    {
+      eputs ("mes: malloc failed\n");
+      exit (1);
+    }
   g_cells = cast_charp_to_scmp (g_arena);
+#if __M2__
+  g_stack_array = cast_charp_to_scmpp (g_arena + (arena_bytes * 2));
+#else
   g_stack_array = cast_charp_to_scmpp (g_arena + arena_bytes);
+#endif
 
   /* The vector that holds the arena. */
   cell_arena = g_cells;
@@ -111,6 +143,10 @@ gc_init ()
 
   /* FIXME: remove MES_MAX_STRING, grow dynamically. */
   g_buf = malloc (MAX_STRING);
+  eputs ("[mes] STACK_SIZE=");
+  eputs (ltoa (STACK_SIZE));
+  eputs ("\n");
+  g_arena_bucket = 0;
 }
 
 long
@@ -287,7 +323,9 @@ make_string (char const *s, size_t length)
   struct scm *x = make_pointer_cell (TSTRING, length, 0);
   struct scm *v = make_bytes (length + 1);
   char *p = cell_bytes (v);
-  memcpy (p, s, length + 1);
+  if (s != 0)
+    memcpy (p, s, length);
+  p[length] = 0;
   x->cdr = v;
   return x;
 }
@@ -295,6 +333,8 @@ make_string (char const *s, size_t length)
 struct scm *
 make_string0 (char const *s)
 {
+  if (s == 0)
+    return make_string ("", 0);
   return make_string (s, strlen (s));
 }
 
@@ -349,8 +389,10 @@ gc_up_arena ()
       assert_msg (0, "0");
       exit (1);
     }
+  g_arena = p;
   g_cells = p;
   memcpy (p + stack_offset, p + old_arena_bytes, STACK_SIZE * sizeof (struct scm *));
+  g_stack_array = cast_charp_to_scmpp (g_arena + stack_offset);
   g_cells = g_cells + M2_CELL_SIZE;
 }
 
@@ -473,6 +515,8 @@ gc_flip ()
 struct scm *
 gc_copy (struct scm *old)               /*:((internal)) */
 {
+  if (old == 0)
+    return 0;
   if (old->type == TBROKEN_HEART)
     return old->car;
   struct scm *new = g_free;
@@ -579,10 +623,32 @@ gc_loop (struct scm *scan)
   gc_flip ();
 }
 
+void
+gc_report_arena ()
+{
+  long used;
+  long tenth;
+  long bucket;
+  used = (g_free - g_cells) / M2_CELL_SIZE;
+  tenth = ARENA_SIZE / U10;
+  if (tenth < 1)
+    return;
+  bucket = used / tenth;
+  if (bucket > 10)
+    bucket = 10;
+  if (bucket <= g_arena_bucket)
+    return;
+  g_arena_bucket = bucket;
+  eputs ("[arena] ");
+  eputs (ltoa (bucket * U10));
+  eputs ("%\n");
+}
+
 struct scm *
 gc_check ()
 {
   long used = ((g_free - g_cells) / M2_CELL_SIZE) + GC_SAFETY;
+  gc_report_arena ();
   if (used >= ARENA_SIZE)
     return gc ();
   return cell_unspecified;
@@ -667,6 +733,12 @@ gc ()
      gc_end_time->tv_nsec - gc_start_time->tv_nsec);
   gc_time = gc_time + time;
   gc_count = gc_count + 1;
+  g_arena_bucket = 0;
+  eputs ("[gc] ");
+  eputs (ltoa (gc_count));
+  eputs (" live=");
+  eputs (ltoa ((g_free - g_cells) / M2_CELL_SIZE));
+  eputs ("\n");
   if (g_debug > 5)
     {
       eputs ("symbols: ");
@@ -685,7 +757,14 @@ void
 gc_push_frame ()
 {
   if (g_stack < GC_FRAME_SIZE)
-    assert_msg (0, "STACK FULL");
+    {
+      eputs ("STACK FULL g_stack=");
+      eputs (ltoa (g_stack));
+      eputs (" STACK_SIZE=");
+      eputs (ltoa (STACK_SIZE));
+      eputs ("\n");
+      assert_msg (0, "STACK FULL");
+    }
   g_stack_array[g_stack - 1] = cell_f;
   g_stack_array[g_stack - 2] = R0;
   g_stack_array[g_stack - 3] = R1;

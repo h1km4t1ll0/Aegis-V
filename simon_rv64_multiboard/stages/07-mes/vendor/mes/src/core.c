@@ -195,8 +195,9 @@ append_reverse (struct scm *x, struct scm *y)
 struct scm *
 reverse_x_ (struct scm *x, struct scm *t)
 {
-  if (x != cell_nil && x->type != TPAIR)
-    error (cell_symbol_not_a_pair, cons (x, cstring_to_symbol ("core:reverse!")));
+  if (x != cell_nil)
+    if (x->type != TPAIR)
+      error (cell_symbol_not_a_pair, cons (x, cstring_to_symbol ("core:reverse!")));
   struct scm *r = t;
   while (x != cell_nil)
     {

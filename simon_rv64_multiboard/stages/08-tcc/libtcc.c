@@ -42,7 +42,9 @@ static int nb_states;
 #include "tccpp.c"
 #include "tccgen.c"
 #include "tccelf.c"
+#ifndef CONFIG_TCCBOOT
 #include "tccrun.c"
+#endif
 #ifdef TCC_TARGET_I386
 #include "i386-gen.c"
 #include "i386-link.c"
@@ -945,7 +947,7 @@ LIBTCCAPI void tcc_delete(TCCState *s1)
     dynarray_reset(&s1->pragma_libs, &s1->nb_pragma_libs);
     dynarray_reset(&s1->argv, &s1->argc);
 
-#ifdef TCC_IS_NATIVE
+#if defined TCC_IS_NATIVE && !defined CONFIG_TCCBOOT
     /* free runtime memory */
     tcc_run_free(s1);
 #endif

@@ -15,7 +15,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Mes.  If not, see <http://www.gnu.org/licenses/>.
+ * along with GNU Mes.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <mes/lib.h>
@@ -25,24 +25,12 @@ void
 __assert_fail (char const *msg, char const *file, unsigned line,
                char const *function)
 {
-  if (file && *file)
-    {
-      eputs (file);
-      eputs (":");
-    }
-  if (line)
-    {
-      eputs (itoa (line));
-      eputs (":");
-    }
-  if (function && *function)
-    {
-      eputs (function);
-      eputs (":");
-    }
+  /* M2-Planet compiles && as bitwise AND and always evaluates both
+   * sides.  assert_msg() passes file=function=0; `file && *file` then
+   * loads from address 0 and traps before printing the message. */
   eputs ("assert fail: ");
-  eputs (msg);
+  if (msg != 0)
+    eputs (msg);
   eputs ("\n");
-  char *fail = 0;
-  fail[0] = 0;
+  exit (1);
 }

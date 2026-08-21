@@ -164,17 +164,20 @@ display_helper (struct scm *x, int cont, char *sep, int fd, int write_p)
             }
           fdputs (" ...)", fd);
         }
-      else
+      else if (x != 0)
         {
-          if (x != 0 && x != cell_nil)
+          if (x != cell_nil)
             fdisplay_ (x->car, fd, write_p);
-          if (x->cdr != 0 && x->cdr->type == TPAIR)
-            display_helper (x->cdr, 1, " ", fd, write_p);
-          else if (x->cdr != 0 && x->cdr != cell_nil)
+          if (x->cdr != 0)
             {
-              if (x->cdr->type != TPAIR)
-                fdputs (" . ", fd);
-              fdisplay_ (x->cdr, fd, write_p);
+              if (x->cdr->type == TPAIR)
+                display_helper (x->cdr, 1, " ", fd, write_p);
+              else if (x->cdr != cell_nil)
+                {
+                  if (x->cdr->type != TPAIR)
+                    fdputs (" . ", fd);
+                  fdisplay_ (x->cdr, fd, write_p);
+                }
             }
         }
       if (cont == 0)

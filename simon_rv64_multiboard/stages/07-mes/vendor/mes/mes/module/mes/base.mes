@@ -103,20 +103,27 @@
       (and (pair? x) (list? (cdr x)))))
 
 (define-macro (cond . clauses)
-  (list 'if (pair? clauses)
-        (list (cons
-               'lambda
-               (cons
-                '(test)
-                (list (list 'if 'test
-                            (if (pair? (cdr (car clauses)))
-                                (if (eq? (car (cdr (car clauses))) '=>)
-                                    (append2 (cdr (cdr (car clauses))) '(test))
-                                    (list (cons 'lambda (cons '() (cons 'test (cdr (car clauses)))))))
-                                (list (cons 'lambda (cons '() (cons 'test (cdr (car clauses)))))))
-                            (if (pair? (cdr clauses))
-                                (cons 'cond (cdr clauses)))))))
-              (car (car clauses)))))
+  ;; Tail-call friendly: do not wrap bodies in ((lambda () test body)).
+  ;; That IIFE blocked Mes TCO and grew ~2 VM frames per named-let hop.
+  (if (null? clauses)
+      '*unspecified*
+      (if (eq? (car (car clauses)) 'else)
+          (cons 'begin (cdr (car clauses)))
+          (if (null? (cdr (car clauses)))
+              (list (list 'lambda (list 'test)
+                          (list 'if 'test 'test
+                                (cons 'cond (cdr clauses))))
+                    (car (car clauses)))
+              (if (eq? (car (cdr (car clauses))) '=>)
+                  (list (list 'lambda (list 'test)
+                              (list 'if 'test
+                                    (list (car (cdr (cdr (car clauses)))) 'test)
+                                    (cons 'cond (cdr clauses))))
+                        (car (car clauses)))
+                  (list 'if
+                        (car (car clauses))
+                        (cons 'begin (cdr (car clauses)))
+                        (cons 'cond (cdr clauses))))))))
 
 (define else #t)
 

@@ -171,6 +171,11 @@ GCC_SOURCES =					\
  src/cc.c					\
  src/globals.c
 
+# glibc already has __assert_fail; Darwin libc does not.
+ifeq ($(shell uname),Darwin)
+GCC_SOURCES += lib/mes/__assert_fail.c
+endif
+
 mes-gcc: bin/mes-gcc
 mes-m2: bin/mes-m2
 

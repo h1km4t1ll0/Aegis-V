@@ -71,7 +71,7 @@
 ;;; internal: return instruction to save address of the label into register
 (define (riscv64:label_address r label)
   `((,(string-append "rd_" r) (#:u-format ,label) "auipc\n\t")
-    ,(string-append "rd_" r " rs1_" r) (#:i-format ,label) "addiw"))
+    ,(string-append "rd_" r " rs1_" r) (#:i-format ,label) "addi"))
 
 (define (riscv64:push r)
   (string-append "rd_sp rs1_sp !-8 addi

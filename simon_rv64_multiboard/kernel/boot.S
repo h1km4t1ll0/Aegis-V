@@ -17,6 +17,9 @@
 #ifndef PAYLOAD_OFFSET
 #define PAYLOAD_OFFSET 0x80000
 #endif
+#ifndef HART_COUNT
+#define HART_COUNT 1
+#endif
 
 #define NEWLINE        0xA
 #define HASH           0x23
@@ -44,6 +47,19 @@
 #------------------------------------------------------------
 
 _start:
+#if HART_COUNT > 1
+        csrr t0, mhartid
+        bnez t0, boot_secondary
+        li t0, HART_MAILBOX
+        sd zero, 0(t0)
+        sd zero, 8(t0)
+        sd zero, 16(t0)
+        sd zero, 24(t0)
+        sd zero, 32(t0)
+        sd zero, 40(t0)
+        sd zero, 48(t0)
+        sd zero, 56(t0)
+#endif
         call ddr_early_warmup
 
         la a0, greetings
@@ -167,6 +183,35 @@ puts_wait_tx:
     j puts_loop
 puts_done:
     ret
+
+#if HART_COUNT > 1
+boot_secondary:
+        csrr s0, mhartid
+        la t0, boot_ipi
+        csrw mtvec, t0
+        li t0, 8
+        csrs mie, t0
+        csrs mstatus, t0
+boot_secondary_wait:
+        li t0, HART_MAILBOX
+        slli t1, s0, 4
+        add t0, t0, t1
+        ld t2, 0(t0)
+        bnez t2, boot_secondary_go
+        wfi
+        j boot_secondary_wait
+boot_secondary_go:
+        ld sp, 8(t0)
+        jr t2
+.align 2
+boot_ipi:
+        csrr t0, mhartid
+        li t1, CLINT_BASE
+        slli t2, t0, 2
+        add t1, t1, t2
+        sw zero, 0(t1)
+        j boot_secondary_wait
+#endif
 
 greetings: .string "[BOOTED]: Stage 1 (boot) - coded by ylab-nsu.\r\n"
 builded: .string "[BUILDED]: Jump to stage 2.\r\n\r\n"

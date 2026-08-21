@@ -580,73 +580,99 @@
 	    (and=> (read-cpp-line ch) cpp-line->stmt))
 
 	  (define (read-token)
-	    (let loop ((ch (read-char)))
-	      (cond
-	       ((eof-object? ch)
-		(set! suppress #f)
-		(if (pop-input)
-		    (loop (read-char))
-		    (assc-$ '($end . "#<eof>"))))
-	       ((eq? ch #\newline) (set! bol #t) (loop (read-char)))
-	       ((char-set-contains? c:ws ch) (loop (read-char)))
-	       (bol
-		(set! bol #f)
-		(cond ;; things that require bol
- 		 ((read-c-comm ch #t #:skip-prefix #t) => assc-$)
-		 ((read-cpp-stmt ch) =>
-		  (lambda (stmt)
-		    (cond ((pass-cpp-stmt (eval-cpp-stmt stmt)) => assc-$)
-			  (else (loop (read-char))))))
-		 (else (loop ch))))
-	       ((read-c-chlit ch) => assc-$) ; before ident for [ULl]'c'
-	       ((read-c-ident ch) =>
-		(lambda (name)
-		  (let ((symb (string->symbol name))
-			(defs (cpi-defs info)))
-		    (cond
-		     ((and (not suppress)
-			   (x-def? name mode)
-			   (expand-cpp-macro-ref name defs))
-		      => (lambda (repl)
-			   (set! suppress #t) ; don't rescan
-			   (push-input (open-input-string repl))
-			   (loop (read-char))))
-		     ((assq-ref keytab symb)
-		      ;;^minor bug: won't work on #define keyword xxx
-		      ;; try (and (not (assoc-ref name defs))
-		      ;;          (assq-ref keytab symb))
-		      => (lambda (t) (cons t name)))
-		     ((typename? name)
-		      (cons t-typename name))
-		     (else
-		      (cons t-ident name))))))
-	       ((read-c-num ch) => assc-$)
-	       ((read-c-string ch) => assc-$)
-	       ((read-c-comm ch #f #:skip-prefix #t) => assc-$)
-	       ;; Keep track of brace level and scope for typedefs.
-	       ((and (char=? ch #\{)
-		     (eqv? 'keep (car ppxs)) (cpi-inc-blev! info)
-		     #f) #f)
-	       ((and (char=? ch #\})
-		     (eqv? 'keep (car ppxs)) (cpi-dec-blev! info)
-		     #f) #f)
-	       ((read-chseq ch) => identity)
-	       ((assq-ref chrtab ch) => (lambda (t) (cons t (string ch))))
-	       ((eqv? ch #\\) ;; C allows \ at end of line to continue
-		(let ((ch (read-char)))
-		  (cond ((eqv? #\newline ch) (loop (read-char))) ;; extend line
-			(else (unread-char ch) (cons #\\ "\\"))))) ;; parse err
-	       (else (cons ch (string ch))))))
+	    (let ((ch (read-char))
+		  (go #t)
+		  (out #f))
+	      (let iter ()
+		(cond
+		 ((eof-object? ch)
+		  (set! suppress #f)
+		  (if (pop-input)
+		      (set! ch (read-char))
+		      (begin (set! go #f)
+			     (set! out (assc-$ '($end . "#<eof>"))))))
+		 ((eq? ch #\newline)
+		  (set! bol #t)
+		  (set! ch (read-char)))
+		 ((char-set-contains? c:ws ch)
+		  (set! ch (read-char)))
+		 (bol
+		  (set! bol #f)
+		  (cond
+		   ((read-c-comm ch #t #:skip-prefix #t) =>
+		    (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+		   ((read-cpp-stmt ch) =>
+		    (lambda (stmt)
+		      (cond ((pass-cpp-stmt (eval-cpp-stmt stmt)) =>
+			     (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+			    (else (set! ch (read-char))))))
+		   (else #t)))
+		 ((read-c-chlit ch) =>
+		  (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+		 ((read-c-ident ch) =>
+		  (lambda (name)
+		    (let ((symb (string->symbol name))
+			  (defs (cpi-defs info)))
+		      (cond
+		       ((and (not suppress)
+			     (x-def? name mode)
+			     (expand-cpp-macro-ref name defs))
+			=> (lambda (repl)
+			     (set! suppress #t)
+			     (push-input (open-input-string repl))
+			     (set! ch (read-char))))
+		       ((assq-ref keytab symb)
+			=> (lambda (t)
+			     (set! go #f)
+			     (set! out (cons t name))))
+		       ((typename? name)
+			(set! go #f)
+			(set! out (cons t-typename name)))
+		       (else
+			(set! go #f)
+			(set! out (cons t-ident name)))))))
+		 ((read-c-num ch) =>
+		  (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+		 ((read-c-string ch) =>
+		  (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+		 ((read-c-comm ch #f #:skip-prefix #t) =>
+		  (lambda (tok) (set! go #f) (set! out (assc-$ tok))))
+		 ((and (char=? ch #\{)
+		       (eqv? 'keep (car ppxs)) (cpi-inc-blev! info)
+		       #f) #f)
+		 ((and (char=? ch #\})
+		       (eqv? 'keep (car ppxs)) (cpi-dec-blev! info)
+		       #f) #f)
+		 ((read-chseq ch) =>
+		  (lambda (tok) (set! go #f) (set! out tok)))
+		 ((assq-ref chrtab ch) =>
+		  (lambda (t)
+		    (set! go #f)
+		    (set! out (cons t (string ch)))))
+		 ((eqv? ch #\\)
+		  (let ((ch2 (read-char)))
+		    (cond ((eqv? #\newline ch2)
+			   (set! ch (read-char)))
+			  (else
+			   (unread-char ch2)
+			   (set! go #f)
+			   (set! out (cons #\\ "\\"))))))
+		 (else
+		  (set! go #f)
+		  (set! out (cons ch (string ch)))))
+		(if go (iter) out))))
 
 	  ;; Loop between reading tokens and skipping tokens via CPP logic.
-	  (let loop ((pair (read-token)))
-	    ;;(report-error "lx loop=>~S" (list pair))
-	    (case (car ppxs)
-	      ((keep)
-	       pair)
-	      ((skip-done skip-look skip)
-	       (loop (read-token)))
-	      (else (error "make-c99-lexer-generator: coding error")))))))
+	  (let ((pair (read-token))
+		(skipping #t))
+	    (let iter ()
+	      (case (car ppxs)
+		((keep)
+		 (set! skipping #f))
+		((skip-done skip-look skip)
+		 (set! pair (read-token)))
+		(else (error "make-c99-lexer-generator: coding error")))
+	      (if skipping (iter) pair))))))
 
     lexer))
 

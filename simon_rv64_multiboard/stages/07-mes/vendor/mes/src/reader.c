@@ -29,9 +29,15 @@
 struct scm *
 read_input_file_env_ (struct scm *e, struct scm *a)
 {
-  if (e == cell_nil)
-    return e;
-  return cons (e, read_input_file_env_ (read_env (a), a));
+  /* Iterative: the old `cons(e, read_input_file_env_(...))` recursed in C
+   * once per top-level form and blew the Darwin stack loading boot/main. */
+  struct scm *acc = cell_nil;
+  while (e != cell_nil)
+    {
+      acc = cons (e, acc);
+      e = read_env (a);
+    }
+  return reverse_x_ (acc, cell_nil);
 }
 
 struct scm *
@@ -121,7 +127,9 @@ reset_reader:
       c = reader_read_line_comment (c);
       goto reset_reader;
     }
-  if ((c == ' ') || (c == '\t') || (c == '\n') || (c == '\f'))
+  /* Must match reader_end_of_word_p / isspace: a leftover '\r' was
+   * unread as make_number(0) and then re-read forever (CRLF host files). */
+  if (isspace (c) != 0)
     {
       c = readchar ();
       goto reset_reader;

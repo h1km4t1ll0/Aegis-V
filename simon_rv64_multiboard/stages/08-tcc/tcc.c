@@ -23,7 +23,9 @@
 #else
 #include "tcc.h"
 #endif
+#ifndef CONFIG_TCCBOOT
 #include "tcctools.c"
+#endif
 
 static const char help[] =
     "Tiny C Compiler "TCC_VERSION" - Copyright (C) 2001-2006 Fabrice Bellard\n"
@@ -267,7 +269,11 @@ redo:
         if (s->verbose)
             printf(version);
         if (opt == OPT_AR)
+#ifdef CONFIG_TCCBOOT
+            tcc_error("ar not supported");
+#else
             return tcc_tool_ar(s, argc, argv);
+#endif
 #ifdef TCC_TARGET_PE
         if (opt == OPT_IMPDEF)
             return tcc_tool_impdef(s, argc, argv);
@@ -340,7 +346,7 @@ redo:
             fclose(s->ppfp);
     } else if (0 == ret) {
         if (s->output_type == TCC_OUTPUT_MEMORY) {
-#ifdef TCC_IS_NATIVE
+#if defined TCC_IS_NATIVE && !defined CONFIG_TCCBOOT
             ret = tcc_run(s, argc, argv);
 #endif
         } else {

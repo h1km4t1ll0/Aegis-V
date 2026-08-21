@@ -281,7 +281,6 @@ src/vector.c
   printf '\0'
 
   echo "src tcc.c"
-  cat "$TCC/bootstrap.h"
   tr -d '\r' < "$TCC/tcc.c"
   printf '\0'
   for f in tcc.h libtcc.c tccpp.c tccgen.c tccelf.c tccasm.c tccrun.c tcctools.c \
@@ -317,7 +316,39 @@ src/vector.c
   printf '\0'
 
   emit mescc.scm "$MESDIR/mescc.scm"
+  emit tcc-mescc-boot.scm "$MESDIR/tcc-mescc-boot.scm"
+  emit tcc-all.scm "$MESDIR/tcc-all.scm"
+  emit tcc-p0.scm "$MESDIR/tcc-p0.scm"
+  emit tcc-p1.scm "$MESDIR/tcc-p1.scm"
+  emit tcc-p2.scm "$MESDIR/tcc-p2.scm"
+  emit tcc-p3.scm "$MESDIR/tcc-p3.scm"
+  emit tcc-libc.scm "$MESDIR/tcc-libc.scm"
+  emit libc3.scm "$MESDIR/libc3.scm"
+  emit crtfix.M1 "$MESDIR/crtfix.M1"
+  for rel in \
+    lib/ctype/isspace.c \
+    lib/ctype/islower.c \
+    lib/ctype/isdigit.c \
+    lib/ctype/isxdigit.c \
+    lib/ctype/isnumber.c \
+    lib/ctype/toupper.c \
+    lib/string/strcat.c \
+    lib/mes/assert_msg.c \
+    lib/mes/abtod.c
+  do
+    emit "$(basename "$rel")" "$MES/$rel"
+  done
+  echo "src libc-tcc.c"
+  while IFS= read -r rel; do
+    rel="${rel%$'\r'}"
+    [ -n "$rel" ] || continue
+    printf '\n/* ==== %s ==== */\n' "$rel"
+    tr -d '\r' < "$MES/$rel"
+    printf '\n'
+  done < "$MESDIR/libc-tcc-sources.list"
+  printf '\0'
   emit hello.scm "$MESDIR/hello.scm"
+  emit tco-probe.scm "$MESDIR/tco-probe.scm"
   emit probe.scm "$MESDIR/probe.scm"
   emit hi.c "$MESDIR/hi.c"
 
@@ -330,4 +361,13 @@ src/vector.c
   emit include/mes/config.h "$MESDIR/config.h"
 
   emit_tree "$NYACC/module/nyacc" mes/module/nyacc \( -name '*.scm' -o -name '*.mes' \)
+
+  CACHE="$ROOT/build/tcc-cache"
+  if [ -f "$CACHE/ready" ]; then
+    for stem in mes m1 h2 catm mes1 mes2 mes3; do
+      if [ -f "$CACHE/$stem.hex0" ]; then
+        emit "$stem.hex0" "$CACHE/$stem.hex0"
+      fi
+    done
+  fi
 ) > "$ROOT/build/files.pl"

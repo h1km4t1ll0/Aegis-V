@@ -45,12 +45,10 @@
                `(begin ,@body)))))))
 
 (define-macro (when expr . body)
-  `(if ,expr
-       ((lambda () ,@body))))
+  `(if ,expr (begin ,@body)))
 
 (define-macro (unless expr . body)
-  `(if (not ,expr)
-       ((lambda () ,@body))))
+  `(if (not ,expr) (begin ,@body)))
 
 (define-macro (do init test . body)
   `(let loop ((,(caar init) ,(cadar init)))
@@ -143,9 +141,9 @@
 ;;; Lists
 (define (make-list n . x)
   (let ((fill (if (pair? x) (car x) *unspecified*)))
-    (let loop ((n n))
-      (if (= 0 n) '()
-          (cons fill (loop (- n 1)))))))
+    (let loop ((n n) (acc (list)))
+      (if (= 0 n) acc
+          (loop (- n 1) (cons fill acc))))))
 
 (define (list-ref lst k)
   (let loop ((lst lst) (k k))
@@ -171,8 +169,11 @@
 (define (iota n)
   (cond
     ((< n 0) (throw 'wrong-type-arg n))
-    ((= n 0) '())
-    (else (append2 (iota (- n 1)) (list (- n 1))))))
+    (else
+     (let loop ((i 0) (acc (list)))
+       (if (= i n)
+           (core:reverse! acc (list))
+           (loop (+ i 1) (cons i acc)))))))
 
 (define (reverse lst)
   (let loop ((lst lst) (r '()))

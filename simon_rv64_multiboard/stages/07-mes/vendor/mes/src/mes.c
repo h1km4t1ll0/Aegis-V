@@ -81,6 +81,8 @@ mes_environment (int argc, char **argv)
   arch = "arm";
 #elif __x86_64__
   arch = "x86_64";
+#elif defined (__aarch64__)
+  arch = "arm64";
 #elif __riscv_xlen == 32
   arch = "riscv32";
 #elif __riscv_xlen == 64

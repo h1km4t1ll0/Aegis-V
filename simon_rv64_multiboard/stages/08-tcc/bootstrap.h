@@ -2,7 +2,6 @@
 #define HAVE_LONG_LONG 1
 #define TCC_TARGET_RISCV64 1
 #define inline
-#define ONE_SOURCE 1
 #define TCC_VERSION "0.9.26"
 #define CONFIG_TCCBOOT 1
 #define CONFIG_TCC_STATIC 1

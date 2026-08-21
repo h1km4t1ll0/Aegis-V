@@ -1,0 +1,26 @@
+## Copyright (C) 2021 Andrius Štikonas
+## Copyright (C) 2023 Janneke Nieuwenhuizen <janneke@gnu.org>
+## Copyright © 2023 Andrius Štikonas <andrius@stikonas.eu>
+##
+## CRT for mescc-emitted labels (`$main`, `$__init_io`), not `$FUNCTION_*`.
+
+:_start
+	rd_fp rs1_sp mv
+	rd_a0 rs1_fp !8 addi
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_a0 sd
+	rd_a0 rs1_fp mv
+	rd_a0 rs1_a0 ld
+	rd_a0 rs1_a0 !2 addi
+	rd_a0 rs1_a0 rs2_x3 slli
+	rd_a0 rs1_fp rs2_a0 add
+	rd_sp rs1_sp !-8 addi
+	rs1_sp rs2_a0 sd
+	rd_fp rs1_fp !8 addi
+	rd_ra $__init_io jal
+	rd_ra $main jal
+	rd_sp rs1_sp !-16 addi
+	rs1_sp rs2_a0 sd
+	rd_a0 rs1_sp ld
+	rd_a7 !93 addi
+	ecall

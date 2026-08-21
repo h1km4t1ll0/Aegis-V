@@ -105,6 +105,17 @@
             ast-strip-comment)
    (c99-input->full-ast #:prefix prefix #:defines defines #:includes includes #:arch arch #:verbose? verbose?)))
 
+;; TCO spine walk: filter-map on proper lists, dotted tail without
+;; recursive list? or (cons (f h) (f t)).
+(define (ast-map f o)
+  (let loop ((lst o) (acc (list)))
+    (if (pair? lst)
+        (let ((r (f (car lst))))
+          (loop (cdr lst) (if r (cons r acc) acc)))
+        (if (null? lst)
+            (core:reverse! acc (list))
+            (append (core:reverse! acc (list)) (f lst))))))
+
 (define (ast-strip-comment o)
   (pmatch o
     ((@ (comment . ,comment)) #f) ; Nyacc 0.90.2/0.93.0?
@@ -112,8 +123,7 @@
     (((comment . ,comment) . ,t) (filter-map ast-strip-comment t))
     (((comment . ,comment) . ,tail) tail)
     ((,head . (comment . ,comment)) head)
-    ((,h . ,t) (if (list? o) (filter-map ast-strip-comment o)
-                   (cons (ast-strip-comment h) (ast-strip-comment t))))
+    ((,h . ,t) (ast-map ast-strip-comment o))
     (_  o)))
 
 (define (qual-const? qual)
@@ -125,8 +135,7 @@
   (pmatch o
     ((decl-spec-list (@ (attributes . ,attributes)) . ,rest)
      `(decl-spec-list ,@rest))
-    ((,h . ,t) (if (list? o) (filter-map ast-strip-attributes o)
-                   (cons (ast-strip-attributes h) (ast-strip-attributes t))))
+    ((,h . ,t) (ast-map ast-strip-attributes o))
     (_  o)))
 
 (define (ast-strip-inline o)
@@ -136,8 +145,7 @@
     ((decl-spec-list (stor-spec (static)) (fctn-spec ,spec) . ,rest)
      (guard (equal? spec "inline"))
      `(decl-spec-list (stor-spec (static)) ,@rest))
-    ((,h . ,t) (if (list? o) (filter-map ast-strip-inline o)
-                   (cons (ast-strip-inline h) (ast-strip-inline t))))
+    ((,h . ,t) (ast-map ast-strip-inline o))
     (_  o)))
 
 (define (ast-strip-const o)
@@ -154,6 +162,5 @@
     ((decl-spec-list (type-qual-list (type-qual ,qual)) . ,rest)
      (if (qual-const? qual) `(decl-spec-list ,@rest)
          `(decl-spec-list (type-qual-list (type-qual ,qual)) ,@(map ast-strip-const rest))))
-    ((,h . ,t) (if (list? o) (filter-map ast-strip-const o)
-                   (cons (ast-strip-const h) (ast-strip-const t))))
+    ((,h . ,t) (ast-map ast-strip-const o))
     (_  o)))
