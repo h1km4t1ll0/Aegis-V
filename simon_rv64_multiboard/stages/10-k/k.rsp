@@ -1,0 +1,15 @@
+-nostdlib
+-nostdinc
+-Wl,-Ttext=0x80000000
+-Wl,-oformat=binary
+-o kernel.bin
+entry.s
+uart.c
+klib.c
+kmain.c
+trap.c
+syscall.c
+proc.c
+elf.c
+kmem.c
+ramfs.c

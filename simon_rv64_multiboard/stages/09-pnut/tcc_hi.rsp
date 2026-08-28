@@ -1,0 +1,9 @@
+-nostdlib
+-nostdinc
+-DPNUT_USE_BRK
+-Wl,-oformat=binary
+-Wl,-Ttext=2181038080
+-o
+tcc-hi.bin
+simon_crt.s
+pnut_stubs.c

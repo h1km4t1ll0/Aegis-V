@@ -1,0 +1,10 @@
+-nostdlib
+-nostdinc
+-DONE_SOURCE
+-DPNUT_USE_BRK
+-I.
+-o
+tcc-tcc.bin
+tcc_crt.s
+tcc_host_libc.c
+tcc.c

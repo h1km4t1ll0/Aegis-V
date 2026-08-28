@@ -546,6 +546,28 @@ ST_FUNC int set_elf_sym(Section *s, addr_t value, unsigned long size,
     return sym_index;
 }
 
+static void tcc_strpfx(char *buf, const char *pfx, const char *s)
+{
+    int i;
+    int j;
+    i = 0;
+    j = 0;
+    while (pfx[j] != 0) {
+        buf[i] = pfx[j];
+        i = i + 1;
+        j = j + 1;
+    }
+    j = 0;
+    if (s) {
+        while (s[j] != 0) {
+            buf[i] = s[j];
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    buf[i] = 0;
+}
+
 /* put relocation */
 ST_FUNC void put_elf_reloca(Section *symtab, Section *s, unsigned long offset,
                             int type, int symbol, addr_t addend)
@@ -557,7 +579,7 @@ ST_FUNC void put_elf_reloca(Section *symtab, Section *s, unsigned long offset,
     sr = s->reloc;
     if (!sr) {
         /* if no relocation section, create it */
-        snprintf(buf, sizeof(buf), REL_SECTION_FMT, s->name);
+        tcc_strpfx(buf, ".rela", s->name);
         /* if the symtab is allocated, then we consider the relocation
            are also */
         sr = new_section(tcc_state, buf, SHT_RELX, symtab->sh_flags);
@@ -1119,6 +1141,38 @@ static void put_dt(Section *dynamic, int dt, addr_t val)
 }
 
 #ifndef TCC_TARGET_PE
+static void tcc_cat3(char *buf, const char *a, const char *b, const char *c)
+{
+    int i;
+    int j;
+    i = 0;
+    j = 0;
+    if (a) {
+        while (a[j] != 0) {
+            buf[i] = a[j];
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    j = 0;
+    if (b) {
+        while (b[j] != 0) {
+            buf[i] = b[j];
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    j = 0;
+    if (c) {
+        while (c[j] != 0) {
+            buf[i] = c[j];
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    buf[i] = 0;
+}
+
 static void add_init_array_defines(TCCState *s1, const char *section_name)
 {
     Section *s;
@@ -1126,8 +1180,8 @@ static void add_init_array_defines(TCCState *s1, const char *section_name)
     char sym_start[1024];
     char sym_end[1024];
 
-    snprintf(sym_start, sizeof(sym_start), "__%s_start", section_name + 1);
-    snprintf(sym_end, sizeof(sym_end), "__%s_end", section_name + 1);
+    tcc_cat3(sym_start, "__", section_name + 1, "_start");
+    tcc_cat3(sym_end, "__", section_name + 1, "_end");
 
     s = find_section(s1, section_name);
     if (!s) {
@@ -1151,7 +1205,30 @@ static void add_init_array_defines(TCCState *s1, const char *section_name)
 static int tcc_add_support(TCCState *s1, const char *filename)
 {
     char buf[1024];
-    snprintf(buf, sizeof(buf), "%s/%s", s1->tcc_lib_path, filename);
+    int i;
+    int j;
+    const char *a;
+    i = 0;
+    j = 0;
+    a = s1->tcc_lib_path;
+    if (a) {
+        while (a[j] != 0) {
+            buf[i] = a[j];
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    if (i > 0 && buf[i - 1] != '/') {
+        buf[i] = '/';
+        i = i + 1;
+    }
+    j = 0;
+    while (filename[j] != 0) {
+        buf[i] = filename[j];
+        i = i + 1;
+        j = j + 1;
+    }
+    buf[i] = 0;
     return tcc_add_file(s1, buf);
 }
 
@@ -1191,8 +1268,8 @@ ST_FUNC void tcc_add_runtime(TCCState *s1)
 {
     tcc_add_bcheck(s1);
     tcc_add_pragma_libs(s1);
-    /* add libc */
-    if (!s1->nostdlib) {
+    /* Bootstrap: never pull host libc / libtcc1 / crtn. */
+    if (0) {
         tcc_add_library_err(s1, "c");
 #ifdef TCC_LIBGCC
         if (!s1->static_link) {
@@ -1263,12 +1340,12 @@ ST_FUNC void tcc_add_linker_symbols(TCCState *s1)
                     goto next_sec;
                 p++;
             }
-            snprintf(buf, sizeof(buf), "__start_%s", s->name);
+            tcc_strpfx(buf, "__start_", s->name);
             set_elf_sym(symtab_section,
                         0, 0,
                         ELFW(ST_INFO)(STB_GLOBAL, STT_NOTYPE), 0,
                         s->sh_num, buf);
-            snprintf(buf, sizeof(buf), "__stop_%s", s->name);
+            tcc_strpfx(buf, "__stop_", s->name);
             set_elf_sym(symtab_section,
                         s->data_offset, 0,
                         ELFW(ST_INFO)(STB_GLOBAL, STT_NOTYPE), 0,
@@ -1559,12 +1636,19 @@ struct dyn_inf {
 
 /* Assign sections to segments and decide how are sections laid out when loaded
    in memory. This function also fills corresponding program headers. */
+/* Captured from layout assigns (scalars: pnut struct reads are untrustworthy). */
+static unsigned long elf_pt_off;
+static unsigned long elf_pt_va;
+static unsigned long elf_pt_fsz;
+static unsigned long elf_pt_msz;
+
 static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
                            Section *interp, Section* strsec,
                            struct dyn_inf *dyninf, int *sec_order)
 {
     int i, j, k, file_type, sh_order_index, file_offset;
     unsigned long s_align;
+    unsigned long cap_off, cap_va;
     long long tmp;
     addr_t addr;
     ElfW(Phdr) *ph;
@@ -1579,8 +1663,17 @@ static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
     if (s1->section_align)
         s_align = s1->section_align;
 
-    if (phnum > 0) {
-        if (s1->has_text_addr) {
+    if (1) {
+        /* ELF ET_EXEC for 10-k user: force Ttext 0x10000. pnut may not
+         * persist has_text_addr / first-section captures. Binary (kernel)
+         * keeps the original Ttext path. */
+        if (s1->output_format == TCC_OUTPUT_FORMAT_ELF) {
+            int p_offset;
+            addr = 0x10000;
+            p_offset = file_offset & (s_align - 1);
+            if (p_offset)
+                file_offset += (int)(s_align - p_offset);
+        } else if (s1->has_text_addr) {
             int a_offset, p_offset;
             addr = s1->text_addr;
             /* we ensure that (addr % ELF_PAGE_SIZE) == file_offset %
@@ -1612,6 +1705,8 @@ static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
         dyninf->bss_addr = dyninf->bss_size = 0;
 #endif
 
+        cap_off = 0;
+        cap_va = 0;
         for(j = 0; j < 2; j++) {
             ph->p_type = PT_LOAD;
             if (j == 0)
@@ -1629,15 +1724,10 @@ static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
                 for(i = 1; i < s1->nb_sections; i++) {
                     s = s1->sections[i];
                     /* compute if section should be included */
-                    if (j == 0) {
-                        if ((s->sh_flags & (SHF_ALLOC | SHF_WRITE)) !=
-                            SHF_ALLOC)
-                            continue;
-                    } else {
-                        if ((s->sh_flags & (SHF_ALLOC | SHF_WRITE)) !=
-                            (SHF_ALLOC | SHF_WRITE))
-                            continue;
-                    }
+                    if (j != 0)
+                        continue;
+                    if ((s->sh_flags & SHF_ALLOC) == 0)
+                        continue;
                     if (s == interp) {
                         if (k != 0)
                             continue;
@@ -1665,6 +1755,10 @@ static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
                     file_offset += (int) ( addr - tmp );
                     s->sh_offset = file_offset;
                     s->sh_addr = addr;
+                    if (cap_va == 0) {
+                        cap_off = file_offset;
+                        cap_va = addr;
+                    }
 
                     /* update program header infos */
                     if (ph->p_offset == 0) {
@@ -1695,6 +1789,12 @@ static int layout_sections(TCCState *s1, ElfW(Phdr) *phdr, int phnum,
                 }
             }
 	    if (j == 0) {
+                elf_pt_off = 4096;
+                elf_pt_va = 0x10000;
+                elf_pt_fsz = (unsigned long)file_offset - 4096;
+                elf_pt_msz = (unsigned long)addr - 0x10000;
+                if (elf_pt_msz < elf_pt_fsz)
+                    elf_pt_msz = elf_pt_fsz;
 		/* Make the first PT_LOAD segment include the program
 		   headers itself (and the ELF header as well), it'll
 		   come out with same memory use but will make various
@@ -1862,6 +1962,94 @@ static int final_sections_reloc(TCCState *s1)
     return 0;
 }
 
+/* pnut fwrite() of Elf64_Ehdr/Phdr uses a host struct layout that does
+ * not match the ELF64 on-disk spec (e_phoff/e_entry stay 0). Write the
+ * 64-byte EHDR and one 56-byte PT_LOAD by hand. Do not page-align
+ * p_offset down to 0: that would place the file header at e_entry. */
+static void elf_wr16(FILE *f, unsigned int v)
+{
+    fputc(v & 255, f);
+    fputc((v >> 8) & 255, f);
+}
+
+static void elf_wr32(FILE *f, unsigned int v)
+{
+    elf_wr16(f, v);
+    elf_wr16(f, v >> 16);
+}
+
+static void elf_wr64(FILE *f, unsigned long v)
+{
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+    v = v >> 8;
+    fputc((int)(v & 255), f);
+}
+
+static void elf_write_loadable(TCCState *s1, FILE *f, unsigned long shoff)
+{
+    unsigned long p_off, p_va, p_fsz, p_msz;
+
+    p_off = elf_pt_off;
+    p_va = elf_pt_va;
+    p_fsz = elf_pt_fsz;
+    p_msz = elf_pt_msz;
+    if (p_va == 0)
+        p_va = 0x10000;
+    if (p_off == 0)
+        p_off = 4096;
+    if (p_msz < p_fsz)
+        p_msz = p_fsz;
+    fputc(0x7f, f);
+    fputc('E', f);
+    fputc('L', f);
+    fputc('F', f);
+    fputc(2, f);
+    fputc(1, f);
+    fputc(1, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    fputc(0, f);
+    elf_wr16(f, 2);
+    elf_wr16(f, 243);
+    elf_wr32(f, 1);
+    elf_wr64(f, 0x10000);
+    elf_wr64(f, 64);
+    elf_wr64(f, shoff & 0);
+    elf_wr32(f, 4);
+    elf_wr16(f, 64);
+    elf_wr16(f, 56);
+    elf_wr16(f, 1);
+    elf_wr16(f, 64);
+    elf_wr16(f, 0);
+    elf_wr16(f, 0);
+    elf_wr32(f, 1);
+    elf_wr32(f, 7);
+    elf_wr64(f, p_off);
+    elf_wr64(f, p_va);
+    elf_wr64(f, p_va);
+    elf_wr64(f, p_fsz);
+    elf_wr64(f, p_msz);
+    elf_wr64(f, 4096);
+}
+
 /* Create an ELF file on disk.
    This function handle ELF specific layout requirements */
 static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
@@ -1935,9 +2123,8 @@ static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
     ehdr.e_shnum = shnum;
     ehdr.e_shstrndx = shnum - 1;
 
-    fwrite(&ehdr, 1, sizeof(ElfW(Ehdr)), f);
-    fwrite(phdr, 1, phnum * sizeof(ElfW(Phdr)), f);
-    offset = sizeof(ElfW(Ehdr)) + phnum * sizeof(ElfW(Phdr));
+    elf_write_loadable(s1, f, (unsigned long)file_offset);
+    offset = 64 + 56;
 
     sort_syms(s1, symtab_section);
     for(i = 1; i < s1->nb_sections; i++) {
@@ -1954,31 +2141,10 @@ static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
         }
     }
 
-    /* output section headers */
-    while (offset < ehdr.e_shoff) {
-        fputc(0, f);
-        offset++;
-    }
-
-    for(i = 0; i < s1->nb_sections; i++) {
-        sh = &shdr;
-        memset(sh, 0, sizeof(ElfW(Shdr)));
-        s = s1->sections[i];
-        if (s) {
-            sh->sh_name = s->sh_name;
-            sh->sh_type = s->sh_type;
-            sh->sh_flags = s->sh_flags;
-            sh->sh_entsize = s->sh_entsize;
-            sh->sh_info = s->sh_info;
-            if (s->link)
-                sh->sh_link = s->link->sh_num;
-            sh->sh_addralign = s->sh_addralign;
-            sh->sh_addr = s->sh_addr;
-            sh->sh_offset = s->sh_offset;
-            sh->sh_size = s->sh_size;
-        }
-        fwrite(sh, 1, sizeof(ElfW(Shdr)), f);
-    }
+    /* ET_EXEC is PHDR-only. Skip SHDR table (pnut struct layout). */
+    (void)ehdr;
+    (void)shdr;
+    (void)sh;
 }
 
 /* Write an elf, coff or "binary" file */
@@ -2074,6 +2240,14 @@ static int elf_output_file(TCCState *s1, const char *filename)
 
     file_type = s1->output_type;
     s1->nb_errors = 0;
+
+    /* Simon default: raw @ USER_CODE_BASE. Keep it only when the user did
+     * not pass -Wl,-Ttext= / -Wl,-oformat= (has_text_addr / oformat already set). */
+    if (file_type == TCC_OUTPUT_EXE && !s1->has_text_addr) {
+        s1->output_format = TCC_OUTPUT_FORMAT_BINARY;
+        s1->text_addr = 0x82000000;
+        s1->has_text_addr = 1;
+    }
 
     /* if linking, also link in runtime libraries (libc, libgcc, etc.) */
     if (file_type != TCC_OUTPUT_OBJ) {
@@ -2173,22 +2347,22 @@ static int elf_output_file(TCCState *s1, const char *filename)
     sec_order = tcc_malloc(sizeof(int) * shnum);
     sec_order[0] = 0;
 
-    /* compute number of program headers */
-    switch(file_type) {
-    default:
-    case TCC_OUTPUT_OBJ:
-        phnum = 0;
-        break;
-    case TCC_OUTPUT_EXE:
+    /* compute number of program headers
+     * if-else: pnut switch takes the first case (default/OBJ), so EXE
+     * was emitted with phnum=0, Ttext unused, and stores to address 0. */
+    if (file_type == TCC_OUTPUT_EXE) {
         if (!s1->static_link)
             phnum = 4 + HAVE_PHDR;
         else
             phnum = 2;
-        break;
-    case TCC_OUTPUT_DLL:
+    } else if (file_type == TCC_OUTPUT_DLL) {
         phnum = 3;
-        break;
+    } else {
+        phnum = 0;
     }
+    /* pnut may still leave phnum at 0; static EXE always needs 2 PT_LOADs
+     * so layout applies Ttext instead of leaving sh_addr=0. */
+    phnum = 2;
 
     /* Allocate strings for section names */
     alloc_sec_names(s1, file_type, strsec);

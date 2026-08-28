@@ -81,13 +81,14 @@ def skip_user_code(ptr):
     return ptr
 
 
-def plant_files(pid, ram_host, files, dest_base):
+def plant_files(pid, ram_host, files, dest_base, update_file_ptr=True):
     """Write named blobs into ramfs slots starting at dest_base.
 
     @param pid - QEMU PID
     @param ram_host - Host mapping of guest RAM base
     @param files - Sequence of (name, bytes)
     @param dest_base - Guest address for the first body
+    @param update_file_ptr - If false, do not poke Simon's file bump pointer
     @returns Next free guest address
     """
     names_host = guest_to_host(FILE_NAME_BASE, ram_host)
@@ -124,8 +125,9 @@ def plant_files(pid, ram_host, files, dest_base):
         ]
         print("plant %s slot %d @ %s len %d" % (name, slot, hex(ptr), len(data)), flush=True)
         ptr = skip_user_code((ptr + len(data) + 15) & ~15)
-    open(tmp + "/fp.bin", "wb").write(struct.pack("<Q", ptr))
-    cmds.append("memory write --infile %s/fp.bin %s" % (
-        tmp, hex(guest_to_host(FILE_PTR_GUEST, ram_host))))
+    if update_file_ptr:
+        open(tmp + "/fp.bin", "wb").write(struct.pack("<Q", ptr))
+        cmds.append("memory write --infile %s/fp.bin %s" % (
+            tmp, hex(guest_to_host(FILE_PTR_GUEST, ram_host))))
     lldb_cmds(pid, cmds, timeout=300)
     return ptr

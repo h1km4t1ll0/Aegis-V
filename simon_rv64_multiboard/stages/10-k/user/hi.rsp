@@ -1,0 +1,6 @@
+-nostdlib
+-nostdinc
+-Wl,-Ttext=0x81000000
+-Wl,-oformat=elf64-little
+-o init.elf
+hi.s
