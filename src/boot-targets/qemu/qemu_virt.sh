@@ -1,0 +1,9 @@
+BOARD_NAME=qemu_virt
+BOARD_HEADER=src/boot-targets/qemu/qemu_virt.h
+DDR_ADDR=0x80000000
+IMAGE_OUT=src/stages/0-simon/artifacts/image.bin
+FULLFLASH_BIN=
+WRAPPED_BIN=
+UBOOT_SPL_BIN=
+UBOOT_IMAGE_NAME=SimonOS-QEMU
+SUPPORTS_FULLFLASH=0

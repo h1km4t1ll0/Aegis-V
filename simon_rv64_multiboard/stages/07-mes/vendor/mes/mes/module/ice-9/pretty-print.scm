@@ -1,5 +1,0 @@
-(define-module (ice-9 pretty-print)
-  #:export (pretty-print))
-(define (pretty-print obj . opts)
-  (write obj)
-  (newline))

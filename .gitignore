@@ -3,6 +3,13 @@
 CLAUDE.md
 docs/superpowers/
 
+# Build artifacts
+/build/
+
+# Stage binaries (keep .gitkeep)
+src/stages/*/artifacts/*
+!src/stages/*/artifacts/.gitkeep
+
 # Python
 __pycache__/
 *.pyc

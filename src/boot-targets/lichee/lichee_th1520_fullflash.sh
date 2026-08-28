@@ -1,0 +1,9 @@
+BOARD_NAME=lichee_th1520_fullflash
+BOARD_HEADER=src/boot-targets/lichee/lichee_th1520_fullflash.h
+DDR_ADDR=0x40000000
+IMAGE_OUT=build/lichee/artifacts/image.bin
+FULLFLASH_BIN=build/lichee/artifacts/flash_me_lichee.bin
+WRAPPED_BIN=build/lichee/artifacts/simon_wrapped_lichee.img
+UBOOT_SPL_BIN=src/boot-targets/lichee/firmware/u-boot-with-spl.bin
+UBOOT_IMAGE_NAME=SimonOS-Lichee
+SUPPORTS_FULLFLASH=1

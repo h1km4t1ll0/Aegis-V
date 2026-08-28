@@ -1,8 +1,0 @@
-(display 'start-nyacc)
-(newline)
-(use-modules (nyacc lang c99 parser))
-(display 'parser-ok)
-(newline)
-(use-modules (nyacc lang c99 pprint))
-(display 'pprint-ok)
-(newline)
