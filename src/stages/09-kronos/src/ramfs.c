@@ -1,5 +1,7 @@
 #include "k.h"
 
+#define KFS_NEXTRA 4096
+
 static unsigned char *fs_base;
 static unsigned int fs_nent;
 
@@ -22,7 +24,7 @@ struct extra {
 };
 
 static struct fdent fds[32];
-static struct extra extras[16];
+static struct extra extras[KFS_NEXTRA];
 static char pathbuf[256];
 
 static unsigned int u16le(unsigned char *p)
@@ -86,7 +88,7 @@ static struct extra *extra_find(const char *path)
 {
     int i;
     i = 0;
-    while (i < 16) {
+    while (i < KFS_NEXTRA) {
         if (extras[i].used && path_eq(extras[i].path, path))
             return &extras[i];
         i = i + 1;
@@ -107,7 +109,7 @@ void ramfs_init(void *blob)
         i = i + 1;
     }
     i = 0;
-    while (i < 16) {
+    while (i < KFS_NEXTRA) {
         extras[i].used = 0;
         extras[i].isdir = 0;
         extras[i].data = 0;
@@ -189,12 +191,12 @@ static struct extra *extra_create(const char *path, int isdir)
     unsigned long cap;
     unsigned long n;
     i = 0;
-    while (i < 16) {
+    while (i < KFS_NEXTRA) {
         if (!extras[i].used)
             break;
         i = i + 1;
     }
-    if (i >= 16)
+    if (i >= KFS_NEXTRA)
         return 0;
     n = strlen(path);
     if (n > 255)
@@ -208,7 +210,7 @@ static struct extra *extra_create(const char *path, int isdir)
         extras[i].cap = 0;
         return &extras[i];
     }
-    cap = 4UL << 20;
+    cap = 64UL << 10;
     extras[i].data = (unsigned char *)kalloc(cap);
     extras[i].cap = cap;
     if (!extras[i].data) {
@@ -220,6 +222,29 @@ static struct extra *extra_create(const char *path, int isdir)
     uart_puts(extras[i].path);
     uart_puts("\n");
     return &extras[i];
+}
+
+static int extra_grow(struct extra *e, struct fdent *f, unsigned long need)
+{
+    unsigned long ncap;
+    unsigned char *p;
+
+    ncap = e->cap ? e->cap : 4096UL;
+    while (ncap < need) {
+        if (ncap > (1UL << 30))
+            return -1;
+        ncap = ncap << 1;
+    }
+    p = (unsigned char *)kalloc(ncap);
+    if (!p)
+        return -1;
+    if (e->data && e->size)
+        memcpy(p, e->data, e->size);
+    e->data = p;
+    e->cap = ncap;
+    f->data = p;
+    f->cap = ncap;
+    return 0;
 }
 
 int ramfs_open(const char *path, int flags)
@@ -288,25 +313,35 @@ long ramfs_read(int fd, void *buf, unsigned long n)
 
 long ramfs_write(int fd, const void *buf, unsigned long n)
 {
-    unsigned long left;
+    unsigned long need;
     int i;
+    struct extra *e;
     if (fd < 3 || fd >= 32 || !fds[fd].used)
         return -EBADF;
     if (!fds[fd].writable)
         return -EBADF;
-    if (fds[fd].pos > fds[fd].cap)
+    need = fds[fd].pos + n;
+    if (need < fds[fd].pos)
         return -ENOMEM;
-    left = fds[fd].cap - fds[fd].pos;
-    if (n > left)
-        n = left;
-    if (n == 0)
-        return -ENOMEM;
+    if (need > fds[fd].cap) {
+        e = 0;
+        i = 0;
+        while (i < KFS_NEXTRA) {
+            if (extras[i].used && extras[i].data == fds[fd].data) {
+                e = &extras[i];
+                break;
+            }
+            i = i + 1;
+        }
+        if (!e || extra_grow(e, &fds[fd], need))
+            return -ENOMEM;
+    }
     memcpy(fds[fd].data + fds[fd].pos, buf, n);
     fds[fd].pos = fds[fd].pos + n;
     if (fds[fd].pos > fds[fd].size)
         fds[fd].size = fds[fd].pos;
     i = 0;
-    while (i < 16) {
+    while (i < KFS_NEXTRA) {
         if (extras[i].used && extras[i].data == fds[fd].data)
             extras[i].size = fds[fd].size;
         i = i + 1;
@@ -339,7 +374,7 @@ int ramfs_close(int fd)
     if (fd < 3 || fd >= 32 || !fds[fd].used)
         return -EBADF;
     i = 0;
-    while (i < 16) {
+    while (i < KFS_NEXTRA) {
         if (extras[i].used && extras[i].data == fds[fd].data)
             extras[i].size = fds[fd].size;
         i = i + 1;

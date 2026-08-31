@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Simon ramfs: plant and dump named files in a live QEMU via lldb."""
 import os
-import re
 import struct
 import subprocess
 import sys
@@ -16,46 +15,44 @@ FD_BYTES = 1024 * 16
 FILE_PTR_GUEST = 0x80802418
 USER_CODE_BASE = 0x82000000
 USER_CODE_END = 0x84000000
-DEFAULT_RAM_HOST = 0x300000000
+DEFAULT_RAM_HOST = GUEST_RAM
+GDB_PORT = 12345
 
 
 def guest_to_host(guest, ram_host):
-    """Translate guest physical address to QEMU host VA."""
+    """Translate guest physical address to the address space used by gdbstub.
+
+    gdbstub talks guest physical (Simon/Kronos M-mode identity map), so
+    ram_host == GUEST_RAM makes this a no-op.
+    """
     return ram_host + (guest - GUEST_RAM)
 
 
 def lldb_cmds(pid, cmds, timeout=180):
-    """Run lldb batch commands against QEMU."""
-    args = ["lldb", "-p", str(pid), "-b"]
+    """Run lldb batch commands against QEMU gdbstub (guest physical)."""
+    del pid
+    args = [
+        "lldb",
+        "-b",
+        "-o",
+        "gdb-remote 127.0.0.1:%d" % GDB_PORT,
+    ]
     for cmd in cmds:
         args += ["-o", cmd]
     args += ["-o", "detach", "-o", "quit"]
     proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout or "")[-800:])
+    err = (proc.stderr or "") + (proc.stdout or "")
+    if "failed to connect" in err.lower() or "unable to connect" in err.lower():
+        raise RuntimeError("gdbstub connect failed:\n%s" % err[-800:])
     return proc
 
 
 def find_ram_host(pid):
-    """Find host VA of guest RAM (first VM_ALLOCATE at/above 0x300000000)."""
-    out = subprocess.check_output(["vmmap", str(pid)], text=True, errors="replace")
-    best = None
-    for line in out.splitlines():
-        match = re.search(
-            r"(?:0x)?([0-9a-fA-F]{8,})-(?:0x)?([0-9a-fA-F]{8,})",
-            line,
-        )
-        if not match:
-            continue
-        addr = int(match.group(1), 16)
-        if "reserved" in line.lower() or "SM=NUL" in line:
-            continue
-        if addr >= 0x300000000 and "VM_ALLOCATE" in line:
-            if best is None or addr < best:
-                best = addr
-    if best is None:
-        raise RuntimeError("no guest RAM mapping >= 0x300000000")
-    return best
+    """Guest physical base. gdbstub does not need the host VA from vmmap."""
+    del pid
+    return GUEST_RAM
 
 
 def skip_user_code(ptr):

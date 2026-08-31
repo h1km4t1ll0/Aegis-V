@@ -151,13 +151,13 @@ kphys_ramfs:
 kphys_user:
 	lla t0, _start
 	addi t1, zero, 1
-	slli t1, t1, 24
+	slli t1, t1, 25
 	add a0, t0, t1
 	jalr zero, ra, 0
 kphys_usp:
 	lla t0, _start
-	addi t1, zero, 1023
-	slli t1, t1, 20
+	addi t1, zero, 1
+	slli t1, t1, 30
 	add a0, t0, t1
 	jalr zero, ra, 0
 kphys_kalloc:

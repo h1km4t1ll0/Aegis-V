@@ -114,6 +114,8 @@ class Qemu:
                 bios,
                 "-qmp",
                 f"unix:{qmp},server,nowait",
+                "-gdb",
+                "tcp:127.0.0.1:12345,server,nowait",
             ],
             stdin=slave,
             stdout=slave,

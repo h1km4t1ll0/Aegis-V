@@ -58,6 +58,18 @@ ST_FUNC void gen_expr32(ExprValue *pe)
     gen_le32(pe->v);
 }
 
+ST_FUNC void gen_expr64(ExprValue *pe)
+{
+    if (pe->sym) {
+        greloca(cur_text_section, pe->sym, ind, R_RISCV_64, pe->v);
+        gen_le32(0);
+        gen_le32(0);
+    } else {
+        gen_le32((int)pe->v);
+        gen_le32((int)((unsigned long long)pe->v >> 32));
+    }
+}
+
 static void asm_emit_opcode(uint32_t opcode) {
     gen_le32(opcode);
 }
@@ -297,10 +309,19 @@ static void gen_lla(int token, Operand* op1, Operand* op2) {
     // I don't know why it should be like this, but it happens to work
 }
 static void gen_jal(int token, Operand* op1, Operand* op2) {
+    /* Far jal: auipc+jalr (R_RISCV_CALL). Plain JAL is ±1MiB and
+       cannot reach main in a multi-megabyte cc1. rd==x0 would discard
+       auipc, so use t0 as the address temp. */
     Sym *sym;
+    int rd;
+    int tr;
+    (void) token;
     sym = op2->e.sym;
-    greloca(cur_text_section, sym, ind, R_RISCV_JAL, 0);
-    gen_le32( 0x6f | ENCODE_RD(op1->reg));
+    rd = op1->reg;
+    tr = rd ? rd : 5;
+    greloca(cur_text_section, sym, ind, R_RISCV_CALL, 0);
+    gen_le32(0x17 | ENCODE_RD(tr));
+    gen_le32(0x67 | ENCODE_RD(rd) | ENCODE_RS1(tr));
 }
 
 static void asm_binary_opcode(TCCState* s1, int token)
@@ -317,8 +338,6 @@ static void asm_binary_opcode(TCCState* s1, int token)
 
     switch (token) {
     case TOK_ASM_la:
-        /* TODO: implement la*/
-        tcc_error("la is not implemented yet");
     case TOK_ASM_lla:
         if(!ops[1].e.sym){
             tcc_error("(%s): expected symbol as second argument", token);
@@ -524,6 +543,36 @@ static void asm_data_processing_opcode(TCCState* s1, int token)
     case TOK_ASM_sltiu:
          asm_emit_i(token, (0x4 << 2) | 3 | (3 << 12), &ops[0], &ops[1], &ops[2]);
          return;
+    case TOK_ASM_mul:
+         asm_emit_r(token, (0xC << 2) | 3 | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_mulw:
+         asm_emit_r(token, (0xE << 2) | 3 | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_div:
+         asm_emit_r(token, (0xC << 2) | 3 | (4 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_divu:
+         asm_emit_r(token, (0xC << 2) | 3 | (5 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_divw:
+         asm_emit_r(token, (0xE << 2) | 3 | (4 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_divuw:
+         asm_emit_r(token, (0xE << 2) | 3 | (5 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_rem:
+         asm_emit_r(token, (0xC << 2) | 3 | (6 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_remu:
+         asm_emit_r(token, (0xC << 2) | 3 | (7 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_remw:
+         asm_emit_r(token, (0xE << 2) | 3 | (6 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
+    case TOK_ASM_remuw:
+         asm_emit_r(token, (0xE << 2) | 3 | (7 << 12) | (1 << 25), &ops[0], &ops[1], &ops[2]);
+         return;
     default:
          expect("known data processing instruction");
     }
@@ -607,19 +656,18 @@ static void asm_data_transfer_opcode(TCCState* s1, int token)
          asm_emit_i(token, (0x0 << 2) | 3 | (6 << 12), &ops[0], &ops[1], &ops[2]);
          return;
 
-    // Stores (RS1,RS2,I); S-format
-
+    /* Stores: same operand order as loads — sd rs2, rs1, imm. */
     case TOK_ASM_sb:
-         asm_emit_s(token, (0x8 << 2) | 3 | (0 << 12), &ops[0], &ops[1], &ops[2]);
+         asm_emit_s(token, (0x8 << 2) | 3 | (0 << 12), &ops[1], &ops[0], &ops[2]);
          return;
-   case TOK_ASM_sh:
-         asm_emit_s(token, (0x8 << 2) | 3 | (1 << 12), &ops[0], &ops[1], &ops[2]);
+    case TOK_ASM_sh:
+         asm_emit_s(token, (0x8 << 2) | 3 | (1 << 12), &ops[1], &ops[0], &ops[2]);
          return;
     case TOK_ASM_sw:
-         asm_emit_s(token, (0x8 << 2) | 3 | (2 << 12), &ops[0], &ops[1], &ops[2]);
+         asm_emit_s(token, (0x8 << 2) | 3 | (2 << 12), &ops[1], &ops[0], &ops[2]);
          return;
     case TOK_ASM_sd:
-         asm_emit_s(token, (0x8 << 2) | 3 | (3 << 12), &ops[0], &ops[1], &ops[2]);
+         asm_emit_s(token, (0x8 << 2) | 3 | (3 << 12), &ops[1], &ops[0], &ops[2]);
          return;
 
     default:
@@ -767,6 +815,16 @@ ST_FUNC void asm_opcode(TCCState *s1, int token)
     case TOK_ASM_slti:
     case TOK_ASM_sltu:
     case TOK_ASM_sltiu:
+    case TOK_ASM_mul:
+    case TOK_ASM_mulw:
+    case TOK_ASM_div:
+    case TOK_ASM_divu:
+    case TOK_ASM_divw:
+    case TOK_ASM_divuw:
+    case TOK_ASM_rem:
+    case TOK_ASM_remu:
+    case TOK_ASM_remw:
+    case TOK_ASM_remuw:
         asm_data_processing_opcode(s1, token);
 	return;
 

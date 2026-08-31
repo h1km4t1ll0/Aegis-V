@@ -16,6 +16,10 @@ extern FILE *stderr;
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
+#define BUFSIZ 1024
+#define FILENAME_MAX 4096
+#define FOPEN_MAX 16
+#define L_tmpnam 20
 
 int printf(const char *fmt, ...);
 int fprintf(FILE *f, const char *fmt, ...);
@@ -40,6 +44,7 @@ int fgetc(FILE *f);
 int getc(FILE *f);
 int ungetc(int c, FILE *f);
 int fputc(int c, FILE *f);
+int putc(int c, FILE *f);
 int fputs(const char *s, FILE *f);
 char *fgets(char *s, int n, FILE *f);
 int fileno(FILE *f);

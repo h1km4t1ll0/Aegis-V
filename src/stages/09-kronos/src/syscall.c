@@ -90,6 +90,7 @@ static void sys_exit(long code)
     uart_puts("exit ");
     print_dec(code);
     uart_puts("\n");
+    proc_set_exit((int)code);
     jump_k();
 }
 
@@ -108,10 +109,29 @@ static long sys_uname(unsigned long buf)
     return 0;
 }
 
-static void fill_stat(unsigned char *st, unsigned long sz, int dir)
+static unsigned long path_ino(const char *path)
+{
+    unsigned long h;
+    unsigned long i;
+
+    h = 5381;
+    i = 0;
+    if (!path)
+        return 1;
+    while (path[i]) {
+        h = h * 33 + (unsigned char)path[i];
+        i = i + 1;
+    }
+    if (h == 0)
+        h = 1;
+    return h & 0x7fffffffUL;
+}
+
+static void fill_stat(unsigned char *st, unsigned long sz, int dir,
+                      unsigned long ino)
 {
     memset(st, 0, 128);
-    /* st_mode at offset 16 */
+    (void)ino;
     *(unsigned int *)(st + 16) = (unsigned int)(dir ? (S_IFDIR | 0755) : (S_IFREG | 0777));
     *(unsigned int *)(st + 20) = 1;
     *(unsigned long *)(st + 48) = sz;
@@ -131,12 +151,12 @@ static long sys_newfstatat(long dirfd, unsigned long path, unsigned long st, lon
     if (!np || !out)
         return -EFAULT;
     if (ramfs_stat_size(np, &sz) == 0) {
-        fill_stat(out, sz, 0);
+        fill_stat(out, sz, 0, path_ino(np));
         return 0;
     }
     dir = ramfs_isdir(np);
     if (dir) {
-        fill_stat(out, 0, 1);
+        fill_stat(out, 0, 1, path_ino(np));
         return 0;
     }
     return -ENOENT;
@@ -150,12 +170,12 @@ static long sys_fstat(long fd, unsigned long st)
     if (!out)
         return -EFAULT;
     if (fd == 0 || fd == 1 || fd == 2) {
-        fill_stat(out, 0, 0);
+        fill_stat(out, 0, 0, (unsigned long)fd + 1);
         return 0;
     }
     if (ramfs_fd_size((int)fd, &sz) < 0)
         return -EBADF;
-    fill_stat(out, sz, 0);
+    fill_stat(out, sz, 0, (unsigned long)fd + 16);
     return 0;
 }
 

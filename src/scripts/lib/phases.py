@@ -34,6 +34,8 @@ STAGE_DIR = {
     "07": "07-tcc",
     "08": "08-pnut",
     "09": "09-kronos",
+    "10": "10-tcc",
+    "12": "12-gcc404",
 }
 
 ARTIFACT_STEM = {

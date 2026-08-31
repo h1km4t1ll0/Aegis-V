@@ -2,10 +2,35 @@
 
 struct proc {
     int exit_code;
-    char cwd[2];
+    char cwd[256];
 };
 
+static char start_cwd[256];
+static int start_cwd_set;
 static struct proc cur;
+
+void proc_set_cwd(const char *path)
+{
+    unsigned long i;
+
+    i = 0;
+    while (path[i] && i < 255) {
+        start_cwd[i] = path[i];
+        i = i + 1;
+    }
+    start_cwd[i] = 0;
+    start_cwd_set = 1;
+}
+
+void proc_set_exit(int code)
+{
+    cur.exit_code = code;
+}
+
+int proc_last_exit(void)
+{
+    return cur.exit_code;
+}
 
 const char *proc_cwd(void)
 {
@@ -52,8 +77,17 @@ void enter_user(unsigned long entry, unsigned long user_sp, char **argv)
     sp[3 + argc] = 0;
     sp[4 + argc] = 0;
     cur.exit_code = 0;
-    cur.cwd[0] = '/';
-    cur.cwd[1] = 0;
+    if (start_cwd_set) {
+        i = 0;
+        while (start_cwd[i] && i < 255) {
+            cur.cwd[i] = start_cwd[i];
+            i = i + 1;
+        }
+        cur.cwd[i] = 0;
+    } else {
+        cur.cwd[0] = '/';
+        cur.cwd[1] = 0;
+    }
     mret_user(entry, user_sp);
 }
 

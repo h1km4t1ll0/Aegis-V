@@ -25,33 +25,16 @@ char *getenv(const char *name);
 int abs(int n);
 long labs(long n);
 void qsort(void *base, size_t nmemb, size_t size, int (*cmp)(const void *, const void *));
+void *bsearch(const void *key, const void *base, size_t n, size_t sz,
+              int (*cmp)(const void *, const void *));
 int system(const char *cmd);
 int atexit(void (*fn)(void));
 int rand(void);
 void srand(unsigned s);
 
-static void *dlopen(const char *filename, int flag)
-{
-    (void)filename;
-    (void)flag;
-    return 0;
-}
-
-static void dlclose(void *p)
-{
-    (void)p;
-}
-
-static void *dlsym(void *handle, const char *symbol)
-{
-    (void)handle;
-    (void)symbol;
-    return 0;
-}
-
-static const char *dlerror(void)
-{
-    return "dl";
-}
+void *dlopen(const char *filename, int flag);
+void dlclose(void *p);
+void *dlsym(void *handle, const char *symbol);
+const char *dlerror(void);
 
 #endif

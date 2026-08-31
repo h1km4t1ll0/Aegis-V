@@ -87,6 +87,9 @@ int ramfs_isdir(const char *path);
 int ramfs_fd_size(int fd, unsigned long *sz);
 
 const char *proc_cwd(void);
+void proc_set_cwd(const char *path);
+int proc_last_exit(void);
+void proc_set_exit(int code);
 unsigned long elf_load(void *blob, unsigned long len);
 void enter_user(unsigned long entry, unsigned long sp, char **argv);
 void run(char *path, char **argv);

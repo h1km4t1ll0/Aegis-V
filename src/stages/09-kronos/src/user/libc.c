@@ -215,6 +215,21 @@ int strncmp(const char *a, const char *b, unsigned long n)
     return (int)(unsigned char)*a - (int)(unsigned char)*b;
 }
 
+unsigned long strcspn(const char *s, const char *reject)
+{
+    unsigned long n = 0;
+    while (s[n]) {
+        const char *r = reject;
+        while (*r) {
+            if (s[n] == *r)
+                return n;
+            r = r + 1;
+        }
+        n = n + 1;
+    }
+    return n;
+}
+
 char *strcat(char *d, const char *s)
 {
     char *o = d;
@@ -314,6 +329,12 @@ char *strerror(int e)
     return errbuf;
 }
 
+char *strsignal(int sig)
+{
+    (void)sig;
+    return errbuf;
+}
+
 long write(int fd, const void *buf, unsigned long n)
 {
     return sysret(ecall6(SYS_write, fd, (long)buf, (long)n, 0, 0, 0));
@@ -364,11 +385,19 @@ void abort(void)
     exit(1);
 }
 
+const char *libiberty_optr;
+char *libiberty_nptr;
+unsigned long libiberty_len;
+
+void __main(void)
+{
+}
+
 static int heap_ok(unsigned long p)
 {
     if (p < 0x10000)
         return 0;
-    if (p >= 0x10000000UL)
+    if (p >= 0x1C000000UL)
         return 0;
     return 1;
 }
@@ -587,6 +616,7 @@ int vsnprintf(char *s, unsigned long n, const char *fmt, va_list ap)
     const char *p;
     int width;
     int zpad;
+    int left;
     int lng;
     unsigned long u;
     long d;
@@ -606,29 +636,77 @@ int vsnprintf(char *s, unsigned long n, const char *fmt, va_list ap)
         p = p + 1;
         width = 0;
         zpad = 0;
+        left = 0;
         lng = 0;
-        if (*p == '0') {
-            zpad = 1;
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') {
+            if (*p == '-')
+                left = 1;
+            if (*p == '0')
+                zpad = 1;
+            p = p + 1;
+        }
+        if (*p == '*') {
+            width = va_arg(ap, int);
+            if (width < 0) {
+                left = 1;
+                width = 0 - width;
+            }
             p = p + 1;
         }
         while (*p >= '0' && *p <= '9') {
             width = width * 10 + (*p - '0');
             p = p + 1;
         }
-        while (*p == 'l') {
-            lng = lng + 1;
+        if (*p == '.') {
+            p = p + 1;
+            if (*p == '*') {
+                (void)va_arg(ap, int);
+                p = p + 1;
+            } else {
+                while (*p >= '0' && *p <= '9')
+                    p = p + 1;
+            }
+        }
+        while (*p == 'l' || *p == 'z' || *p == 't') {
+            if (*p == 'l')
+                lng = lng + 1;
             p = p + 1;
         }
         if (*p == 's') {
+            unsigned long sl;
+            int pad;
             str = va_arg(ap, char *);
             if (!str)
                 str = "(null)";
+            sl = strlen(str);
+            pad = width - (int)sl;
+            if (!left) {
+                while (pad > 0) {
+                    if (pos + 1 < n)
+                        s[pos] = ' ';
+                    pos = pos + 1;
+                    pad = pad - 1;
+                }
+            }
             while (*str) {
                 if (pos + 1 < n)
                     s[pos] = *str;
                 pos = pos + 1;
                 str = str + 1;
             }
+            if (left) {
+                while (pad > 0) {
+                    if (pos + 1 < n)
+                        s[pos] = ' ';
+                    pos = pos + 1;
+                    pad = pad - 1;
+                }
+            }
+        } else if (*p == 'n') {
+            int *np;
+            np = va_arg(ap, int *);
+            if (np)
+                *np = (int)pos;
         } else if (*p == 'c') {
             if (pos + 1 < n)
                 s[pos] = (char)va_arg(ap, int);
@@ -653,6 +731,9 @@ int vsnprintf(char *s, unsigned long n, const char *fmt, va_list ap)
         } else if (*p == 'x' || *p == 'X') {
             u = lng ? va_arg(ap, unsigned long) : (unsigned long)va_arg(ap, unsigned int);
             put_num(s, &pos, n, u, 16, width, zpad, *p == 'X');
+        } else if (*p == 'o') {
+            u = lng ? va_arg(ap, unsigned long) : (unsigned long)va_arg(ap, unsigned int);
+            put_num(s, &pos, n, u, 8, width, zpad, 0);
         } else if (*p == 'p') {
             u = (unsigned long)va_arg(ap, void *);
             put_num(s, &pos, n, u, 16, width, zpad, 0);
@@ -701,8 +782,8 @@ int vfprintf(FILE *f, const char *fmt, va_list ap)
     int fd;
     r = vsnprintf(buf, 1024, fmt, ap);
     fd = 1;
-    if (f == &_stderr)
-        fd = 2;
+    if (f)
+        fd = f->fd;
     if (r > 0)
         write(fd, buf, (unsigned long)r);
     return r;
@@ -729,17 +810,22 @@ int printf(const char *fmt, long a1, long a2, long a3, long a4, long a5, long a6
 
 int puts(const char *s)
 {
+    int fd;
     libc_init();
-    write(1, s, strlen(s));
-    write(1, "\n", 1);
+    fd = stdout ? stdout->fd : 1;
+    write(fd, s, strlen(s));
+    write(fd, "\n", 1);
     return 1;
 }
 
 int putchar(int c)
 {
     char ch;
+    int fd;
+    libc_init();
+    fd = stdout ? stdout->fd : 1;
     ch = (char)c;
-    write(1, &ch, 1);
+    write(fd, &ch, 1);
     return c;
 }
 
@@ -840,6 +926,22 @@ FILE *fdopen(int fd, const char *mode)
     return alloc_file(fd);
 }
 
+FILE *fopen_unlocked(const char *path, const char *mode)
+{
+    return fopen(path, mode);
+}
+
+FILE *fdopen_unlocked(int fd, const char *mode)
+{
+    return fdopen(fd, mode);
+}
+
+FILE *freopen_unlocked(const char *path, const char *mode, FILE *f)
+{
+    (void)f;
+    return fopen(path, mode);
+}
+
 int fclose(FILE *f)
 {
     int i;
@@ -861,6 +963,12 @@ int fflush(FILE *f)
 {
     (void)f;
     return 0;
+}
+
+void setbuf(FILE *f, char *buf)
+{
+    (void)f;
+    (void)buf;
 }
 
 unsigned long fread(void *p, unsigned long sz, unsigned long n, FILE *f)
@@ -940,6 +1048,11 @@ int fputc(int c, FILE *f)
     if (write(f->fd, &ch, 1) != 1)
         return -1;
     return c;
+}
+
+int putc(int c, FILE *f)
+{
+    return fputc(c, f);
 }
 
 int fputs(const char *s, FILE *f)
@@ -1027,10 +1140,23 @@ char *getcwd(char *buf, unsigned long size)
     return buf;
 }
 
+char *getpwd(void)
+{
+    static char pwd[256];
+    if (!getcwd(pwd, 256))
+        return 0;
+    return pwd;
+}
+
 int isatty(int fd)
 {
     (void)fd;
     return 0;
+}
+
+int getpid(void)
+{
+    return 1;
 }
 
 char *getenv(const char *name)
@@ -1213,6 +1339,96 @@ int fcntl(int fd, int cmd, ...)
 int fstat(int fd, void *st)
 {
     return (int)sysret(ecall6(SYS_fstat, fd, (long)st, 0, 0, 0, 0));
+}
+
+int stat(const char *path, void *st)
+{
+    return (int)sysret(ecall6(SYS_newfstatat, AT_FDCWD, (long)path, (long)st, 0, 0, 0));
+}
+
+int access(const char *path, int mode)
+{
+    return (int)sysret(ecall6(SYS_faccessat, AT_FDCWD, (long)path, mode, 0, 0, 0));
+}
+
+int getpagesize(void)
+{
+    return 4096;
+}
+
+void bcopy(const void *s, void *d, unsigned long n)
+{
+    memmove(d, s, n);
+}
+
+char *strpbrk(const char *s, const char *accept)
+{
+    unsigned long i;
+    unsigned long j;
+    if (!s || !accept)
+        return 0;
+    i = 0;
+    while (s[i]) {
+        j = 0;
+        while (accept[j]) {
+            if (s[i] == accept[j])
+                return (char *)(s + i);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+unsigned long strspn(const char *s, const char *accept)
+{
+    unsigned long i;
+    unsigned long j;
+    int ok;
+    i = 0;
+    if (!s)
+        return 0;
+    while (s[i]) {
+        ok = 0;
+        j = 0;
+        if (accept) {
+            while (accept[j]) {
+                if (s[i] == accept[j])
+                    ok = 1;
+                j = j + 1;
+            }
+        }
+        if (!ok)
+            return i;
+        i = i + 1;
+    }
+    return i;
+}
+
+void *bsearch(const void *key, const void *base, unsigned long n, unsigned long sz,
+    int (*cmp)(const void *, const void *))
+{
+    unsigned long lo;
+    unsigned long hi;
+    unsigned long mid;
+    int c;
+    const unsigned char *p;
+    if (!key || !base || !cmp || sz == 0)
+        return 0;
+    lo = 0;
+    hi = n;
+    p = (const unsigned char *)base;
+    while (lo < hi) {
+        mid = lo + (hi - lo) / 2;
+        c = cmp(key, p + mid * sz);
+        if (c == 0)
+            return (void *)(p + mid * sz);
+        if (c < 0)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    return 0;
 }
 
 void *mmap(void *addr, unsigned long len, int prot, int flags, int fd, long off)
@@ -1429,8 +1645,77 @@ int __floatundisf(unsigned long x)
 
 long __floatundidf(unsigned long x)
 {
-    (void)x;
-    return 0;
+    return (long)(double)x;
+}
+
+double __adddf3(double a, double b)
+{
+    return a + b;
+}
+
+double __subdf3(double a, double b)
+{
+    return a - b;
+}
+
+double __muldf3(double a, double b)
+{
+    return a * b;
+}
+
+double __divdf3(double a, double b)
+{
+    return a / b;
+}
+
+double __floatsidf(int x)
+{
+    return (double)x;
+}
+
+double __floatdidf(long x)
+{
+    return (double)x;
+}
+
+int __fixdfsi(double x)
+{
+    return (int)x;
+}
+
+long __fixdfdi(double x)
+{
+    return (long)x;
+}
+
+int __eqdf2(double a, double b)
+{
+    return a != b;
+}
+
+int __nedf2(double a, double b)
+{
+    return a != b;
+}
+
+int __ltdf2(double a, double b)
+{
+    return a < b ? -1 : (a == b ? 0 : 1);
+}
+
+int __ledf2(double a, double b)
+{
+    return a < b ? -1 : (a == b ? 0 : 1);
+}
+
+int __gtdf2(double a, double b)
+{
+    return a > b ? 1 : (a == b ? 0 : -1);
+}
+
+int __gedf2(double a, double b)
+{
+    return a > b ? 1 : (a == b ? 0 : -1);
 }
 
 struct f128 __floatundixf(unsigned long x)
@@ -1479,6 +1764,48 @@ void *dlsym(void *handle, const char *symbol)
 const char *dlerror(void)
 {
     return "dl";
+}
+
+void (*signal(int sig, void (*handler)(int)))(int)
+{
+    (void)sig;
+    (void)handler;
+    return 0;
+}
+
+int raise(int sig)
+{
+    (void)sig;
+    return 0;
+}
+
+int kill(int pid, int sig)
+{
+    (void)pid;
+    (void)sig;
+    return 0;
+}
+
+struct DIR {
+    int unused;
+};
+
+void *opendir(const char *path)
+{
+    (void)path;
+    return 0;
+}
+
+void *readdir(void *d)
+{
+    (void)d;
+    return 0;
+}
+
+int closedir(void *d)
+{
+    (void)d;
+    return -1;
 }
 
 /* HEAD tcc.c skips tcctools.c when CONFIG_TCCBOOT but still calls these. */

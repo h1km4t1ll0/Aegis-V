@@ -107,7 +107,7 @@ void vm_init(void)
     memset(l1, 0, 4096);
     l2[0] = ((unsigned long)l1 >> 2) | 1;
     i = 0;
-    while (i < 128) {
+    while (i < 224) {
         l0 = (unsigned long *)kalloc(4096);
         memset(l0, 0, 4096);
         l1[i] = ((unsigned long)l0 >> 2) | 1;

@@ -185,6 +185,17 @@
  DEF_ASM(ecall)
  DEF_ASM(ebreak)
 
+ DEF_ASM(mul)
+ DEF_ASM(mulw)
+ DEF_ASM(div)
+ DEF_ASM(divu)
+ DEF_ASM(divw)
+ DEF_ASM(divuw)
+ DEF_ASM(rem)
+ DEF_ASM(remu)
+ DEF_ASM(remw)
+ DEF_ASM(remuw)
+
 
 /* Counters */
 

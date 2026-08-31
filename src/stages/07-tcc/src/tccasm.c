@@ -539,7 +539,7 @@ static void asm_parse_directive(TCCState *s1, int global)
         ind += size;
         break;
     case TOK_ASMDIR_quad:
-#ifdef TCC_TARGET_X86_64
+#if defined(TCC_TARGET_X86_64) || defined(TCC_TARGET_RISCV64)
 	size = 8;
 	goto asm_data;
 #else
@@ -594,7 +594,7 @@ static void asm_parse_directive(TCCState *s1, int global)
             if (sec->sh_type != SHT_NOBITS) {
                 if (size == 4) {
                     gen_expr32(&e);
-#ifdef TCC_TARGET_X86_64
+#if defined(TCC_TARGET_X86_64) || defined(TCC_TARGET_RISCV64)
 		} else if (size == 8) {
 		    gen_expr64(&e);
 #endif
