@@ -1,0 +1,18 @@
+Aegis-V (16-buildtools README): Tilck has no fchdir() (ENOSYS), so find must not
+use open(O_NOFOLLOW) + fchdir() to enter directories; with false it uses
+chdir() and lstat(), as where O_NOFOLLOW is not trusted.
+
+--- findutils-4.2.33/find/find.c
++++ findutils-4.2.33/find/find.c
+@@ -377,6 +377,11 @@
+ 	  /* FreeBSD 3.0-CURRENT and later support it */
+ 	  return release >= 3.1;
+ 	}
++      else if (0 == strcmp("Tilck", uts.sysname))
++	{
++	  /* Tilck has no fchdir() (ENOSYS): chdir() and lstat() instead */
++	  return false;
++	}
+     }
+ 
+   /* Well, O_NOFOLLOW was defined, so we'll try to use it. */

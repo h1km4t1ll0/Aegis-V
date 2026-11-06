@@ -1,0 +1,17 @@
+Aegis-V (16-buildtools README): when fchdir() fails with ENOSYS (Tilck), ftw
+enters a directory with chdir() of the whole path from the start, but the
+cwd is already its parent (du of nested directories: "cannot change to
+directory"); the last component is the right name.
+
+--- coreutils-5.0/lib/ftw.c
++++ coreutils-5.0/lib/ftw.c
+@@ -517,7 +517,8 @@
+ 	{
+ 	  if (errno == ENOSYS)
+ 	    {
+-	      if (__chdir (data->dirbuf) < 0)
++	      /* the cwd is the parent: its name, not the whole path */
++	      if (__chdir (data->dirbuf + data->ftw.base) < 0)
+ 		result = -1;
+ 	    }
+ 	  else

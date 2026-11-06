@@ -1,0 +1,5 @@
+-nostdinc -I /lib/tcc7/include -I /usr/include
+-I /src/tilck/include -I /src/tilck/include/system_headers -I /src/tilck/common/3rd_party
+-I /build/tilck/kbin -I /build/tilck -I /src/tilck/libfdt -I /src/tilck/include/libc
+-D__TILCK_KERNEL__ -D__ACTUAL_TILCK_KERNEL_BINARY__ -D__riscv64 -DNDEBUG -DTILCK_RELEASE_BUILD
+-fno-common -fno-asynchronous-unwind-tables -fno-pic

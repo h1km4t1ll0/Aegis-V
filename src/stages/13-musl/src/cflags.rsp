@@ -1,0 +1,4 @@
+-std=c99 -nostdinc -ffreestanding -D_XOPEN_SOURCE=700
+-I /src/musl/arch/riscv64 -I /src/musl/arch/generic -I /build/musl/obj/src/internal
+-I /src/musl/src/include -I /src/musl/src/internal -I /build/musl/obj/include
+-I /src/musl/include -I /lib/tcc7/include -fno-pic

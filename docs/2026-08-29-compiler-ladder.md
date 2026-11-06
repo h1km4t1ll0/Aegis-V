@@ -2,6 +2,8 @@
 
 Date: 2026-08-29
 
+Цель дальше (Linux с нуля, живой статус): [bootstrap-to-linux.md](bootstrap-to-linux.md).
+
 One rung at a time. Guest compiles guest. Host does not build `cc1` or tcc5 `.o`. No GNU make, no `configure`, no fork.
 
 ## Done (do not redo)
@@ -18,6 +20,7 @@ UART: `Kronos`, `tcc version 0.9.26`, `cmp ok` (`tcc3` ≡ `tcc4`), `tcc version
 - Do not skip a rung because the next one is more interesting.
 - Do not invent a stub `cc1` that always emits hello.s.
 - QEMU stays one process: Simon builds the kernel, reset into Kronos, `run()` the next compiler.
+- After `hello from tcc6`: the next compiler sources are GCC 4.6.4 (Ekaitz RISC-V fork), compiled by the guest `tcc6`. No prebuilt `cc1`. See [bootstrap-to-linux.md](bootstrap-to-linux.md).
 
 ## Rungs
 
@@ -60,91 +63,17 @@ UART: `Kronos`, `tcc version 0.9.26`, `cmp ok` (`tcc3` ≡ `tcc4`), `tcc version
 
 **Snapshot (when green):** `src/stages/10-tcc/artifacts/tcc6.elf` and `hello6.elf` (dumped from Kronos extras after the UART line). Simon `dump_named` cannot see Kronos KFS.
 
-**Stop.** Do not vendor gcc until this UART is green.
+**Stop.** Next compiler is GCC 4.6.4 sources, after this UART is green. See [bootstrap-to-linux.md](bootstrap-to-linux.md).
 
-### 12b — vendor gcc-core-4.0.4, print `version_string`
+### 12 — GCC 4.6.4, RISC-V fork, from source
 
-**Who compiles:** `/bin/tcc6`.
+**Who compiles:** `/bin/tcc6` on Kronos. The host does not compile this tree.
 
-**What:** tarball `gcc-core-4.0.4.tar.bz2` (sha256 `e9bf58c761a4f988311aef6b41f12fd5c7e51d09477468fb73826aecc1be32e7`). Guest compiles real `gcc/version.c` (`const char version_string[] = "4.0.4"`) plus `printver.c`. This is not `cc1`.
+**What:** sources of [ekaitz-zarraga/gcc](https://codeberg.org/ekaitz-zarraga/gcc), commit `c0d20242b1` (2024-06-01), GCC 4.6.4 with the RISC-V backend and musl patches. Record the commit. Do not import a built `cc1`, a Guix substitute, or a Debian package.
 
-**Success UART:** `gcc404` then `4.0.4` (the latter is `puts(version_string)`).
+**Success UART:** guest-built `cc1` prints a 4.6.4 version and compiles hello.
 
-**Snapshot:** `src/stages/12-gcc404/artifacts/gccver.elf`
-
-**Stop.** Do not link `cc1` yet.
-
-### 12c — libiberty `xstrdup` (first library, not cc1)
-
-**Who compiles:** `/bin/tcc6` via `@/src/gcc/xstrdup.rsp`.
-
-**What:** real gcc 4.0.4 `libiberty/xmalloc.c`, `xstrdup.c`, `xexit.c` plus `include/ansidecl.h` and `include/libiberty.h`. Hand `config.h` only (no `configure`). Driver `xstrdup-main.c` calls `xstrdup`.
-
-**Success UART:** `xstrdup-ok`
-
-**Snapshot:** `src/stages/12-gcc404/artifacts/xstrdup.elf`
-
-**Stop.** Do not plant all of libiberty or libcpp yet.
-
-### 12d — `gengenrtl` (first gcc generator binary)
-
-**Who compiles:** `/bin/tcc6` via `@/src/gcc/gengenrtl.rsp`.
-
-**What:** real `gcc/gengenrtl.c` + `rtl.def`. Hand-written `bconfig.h` / `system.h` (only what this generator needs). Run `/bin/gengenrtl -h`.
-
-**Success UART:** `gengenrtl from rtl.def` (from `genlegend()`).
-
-**Snapshot:** `src/stages/12-gcc404/artifacts/gengenrtl.elf`
-
-**Stop.** Do not link `cc1` yet.
-
-### 12d2 — `genmodes` (insn-modes.h)
-
-**Who compiles:** `/bin/tcc6` via `@/src/gcc/genmodes.rsp`.
-
-**What:** real `gcc/genmodes.c` + `machmode.def` + `errors.c`. Not libiberty `hashtab.c` (tcc6 hung compiling it). Guest `mini-htab.c` + `c-alloca.c` instead. Probe `gmhdr` compiles the same headers/deps without `genmodes.c`.
-
-**Success UART:** `gmhdr-ok`, then `insn-modes VOIDmode`, `insn-modes.c ok`, `genrtl.h ok`. Guest `genmodes -h` / `gengenrtl -h` write KFS files (stdout redirect via last non-flag argv).
-
-**Snapshot:** `src/stages/12-gcc404/artifacts/genmodes.elf`, `insn-modes.h`
-
-**Stop.** Do not link `cc1` yet.
-
-### 12c — libiberty + libcpp as objects linked by tcc6
-
-Hand-written `config.h`. tcc6 links the libraries in one invocation (`@rsp`), one extra slot for the output. No intermediate `.o` forest if extras are tight.
-
-**Stop.**
-
-### 12d — tiny `riscv64.md` + gen* → `insn-*.c`
-
-Smallest integer RV64 machine description. Asm dialect must be TCC-legal (`ld rd, rs, imm`, no `.cfi_*`).
-
-**Stop.**
-
-### 12e — tcc6 links `/bin/cc1`
-
-Real gcc 4.0.4 C frontend + that backend. Not a stub that always emits hello.s.
-
-### 12 — simple gcc (4.0.4 C only)
-
-**Who compiles:** tcc5/tcc6, not tcc-pnut, not tcc4.
-
-**What:** gcc 4.0.4 C frontend only (live-bootstrap). Upstream 4.0.4 has no RISC-V. This rung adds the **smallest** RV64 integer backend that can compile `hello.c` (puts + return 0). Asm must be TCC-legal (`ld rd, rs, imm`, no `.cfi_*`).
-
-**Success UART:** gcc version line containing `4.0.4`, then `hello from gcc`.
-
-**Not this rung:** gcc 4.7, libstdc++, configure, GNU as/ld.
-
-### 13 — gcc 4.7.4
-
-**Who compiles:** the 4.0.4 gcc from rung 12, or tcc6 if 4.0.4 still cannot eat 4.7 sources.
-
-**What:** gcc 4.7.4 C + a fuller RV64 backend. Last C-language gcc; later gcc is C++.
-
-**Success:** version `4.7.4`, hello still runs.
-
-**Out of this ladder:** gcc 7, Linux, musl-as-replacement.
+**Not this rung:** GCC 4.0.4, GCC 4.7.4, any prebuilt compiler binary. Upstream GCC 9 comes after this `cc1` can compile C++.
 
 ## Layout
 
@@ -152,7 +81,6 @@ Real gcc 4.0.4 C frontend + that backend. Not a stub that always emits hello.s.
 |---|---|---|
 | 10 | `src/stages/10-tcc/` | `/bin/tcc5` |
 | 11 | same tree, extra kmain step | `/bin/tcc6` |
-| 12 | `src/stages/12-gcc404/` (create when 11 is green) | `/bin/cc1` 4.0.4 |
-| 13 | `src/stages/13-gcc474/` (create when 12 is green) | `/bin/cc1` 4.7.4 |
+| 12 | `src/stages/12-gcc464/` | `/bin/cc1` 4.6.4, built by tcc6 from source |
 
-`10-gcc` and `gcc.py` are deleted. Do not restore them for rung 10 or 11.
+`10-gcc` and `gcc.py` are deleted. Do not restore them for rung 10 or 11. Do not restore `12-gcc404` or `13-gcc474`.

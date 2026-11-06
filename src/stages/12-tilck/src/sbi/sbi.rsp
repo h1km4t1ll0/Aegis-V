@@ -1,0 +1,10 @@
+-o /build/tilck/sbi.bin
+-nostdinc -I /lib/tcc7/include -I /usr/include -I /src/tilck/include/libc -I /src/tilck/libfdt
+-fno-pic -fno-asynchronous-unwind-tables
+-nostdlib -static -Wl,-Ttext=0x80000000 -Wl,-oformat=binary
+/src/tilck/sbi/sbi-entry.s
+/src/tilck/sbi/sbi.c
+/src/tilck/libfdt/fdt.c
+/src/tilck/libfdt/fdt_ro.c
+/src/tilck/libfdt/fdt_rw.c
+/src/tilck/libfdt/fdt_wip.c

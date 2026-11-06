@@ -1,0 +1,25 @@
+Aegis-V: do not chown extracted files and directories when running as root
+(as with --no-same-owner of later GNU tar); only --same-owner does. Tilck
+has only uid 0: chown() to any other owner fails with EPERM, and the uid
+1000 files of the sed and bzip2 tarballs made "tar xf" exit 2.
+
+--- tar-1.12/src/extract.c
++++ tar-1.12/src/extract.c
+@@ -161,7 +161,7 @@
+      extract as the original owner.  Or else, if we are running as a user,
+      leave the owner and group as they are, so we extract as that user.  */
+ 
+-  if (we_are_root || same_owner_option)
++  if (same_owner_option)
+     {
+ #if HAVE_LCHOWN
+ 
+@@ -239,7 +239,7 @@
+ 	{
+ 	  /* Fix ownership.  */
+ 
+-	  if (we_are_root)
++	  if (same_owner_option)
+ 	    if (chown (file_name, current_stat.st_uid, current_stat.st_gid) < 0)
+ 	      ERROR ((0, errno,
+ 		      _("%s: Cannot change owner to uid %d, gid %d"),

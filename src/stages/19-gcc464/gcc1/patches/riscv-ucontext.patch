@@ -1,0 +1,20 @@
+musl has no `struct ucontext`, only `ucontext_t` (`typedef struct ucontext_t
+{ ... } ucontext_t;`, as glibc since 2.26). Building libgcc's unwind-dw2.c
+on Tilck (19-gcc464 README, "Patches"):
+
+  config/riscv/linux-unwind.h:45:21: error: field 'uc' has incomplete type
+
+The same substitution Ekaitz's commencement.scm makes for gcc-muslboot0
+(phase patch-for-modern-libc: "struct ucontext" -> "ucontext_t").
+
+--- a/gcc/config/riscv/linux-unwind.h
++++ b/gcc/config/riscv/linux-unwind.h
+@@ -42,7 +42,7 @@
+   struct rt_sigframe
+   {
+     siginfo_t info;
+-    struct ucontext uc;
++    ucontext_t uc;
+   };
+ 
+   struct rt_sigframe *rt_;

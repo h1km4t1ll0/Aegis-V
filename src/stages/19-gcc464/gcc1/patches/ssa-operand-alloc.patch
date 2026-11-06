@@ -1,0 +1,33 @@
+From dc7a8963b8b02e85089674149b0ea0b8997d782d Mon Sep 17 00:00:00 2001
+From: Ekaitz Zarraga <ekaitz@elenq.tech>
+Date: Tue, 30 Apr 2024 00:56:55 +0200
+Subject: [PATCH] Workaround weird TinyCC error in RISCV (reported upstream)
+
+See: https://lists.nongnu.org/archive/html/tinycc-devel/2024-04/msg00027.html
+---
+ gcc/tree-ssa-operands.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/gcc/tree-ssa-operands.c b/gcc/tree-ssa-operands.c
+index d05f8149170..d4ef8de4813 100644
+--- a/gcc/tree-ssa-operands.c
++++ b/gcc/tree-ssa-operands.c
+@@ -300,6 +300,7 @@ static inline void *
+ ssa_operand_alloc (unsigned size)
+ {
+   char *ptr;
++  int x;
+ 
+   gcc_assert (size == sizeof (struct use_optype_d)
+ 	      || size == sizeof (struct def_optype_d));
+@@ -334,8 +335,8 @@ ssa_operand_alloc (unsigned size)
+       gimple_ssa_operands (cfun)->operand_memory_index = 0;
+     }
+ 
+-  ptr = &(gimple_ssa_operands (cfun)->operand_memory
+-	  ->mem[gimple_ssa_operands (cfun)->operand_memory_index]);
++  x = gimple_ssa_operands (cfun)->operand_memory_index;
++  ptr = &(gimple_ssa_operands (cfun)->operand_memory->mem[x]);
+   gimple_ssa_operands (cfun)->operand_memory_index += size;
+   return ptr;
+ }

@@ -1,0 +1,26 @@
+GCC 4.6's crtstuff.c puts frame_dummy (which calls __register_frame_info
+for the program's .eh_frame) into .init when INIT_SECTION_ASM_OP is
+defined, and elfos.h defines it. musl 1.1.24 has no crti.s for riscv64
+(crt/crti.c is empty), so musl's _init is its own empty weak alias and
+.init never runs. Static C++ programs then had no EH frames registered,
+and the first throw aborted in the unwinder (rung gcc4, hello.cpp:
+"Aborted", exit 134; 19-gcc464 README, rung gcc4). config.gcc already
+sets gcc_cv_initfini_array=yes for riscv (from GCC 4.7, where that
+selects initfini-array.h); this is what that header does for crtstuff.
+gcc-1 and gcc-3 were built without it: C programs do not need it.
+
+--- a/gcc/config/riscv/linux.h
++++ b/gcc/config/riscv/linux.h
+@@ -56,3 +56,12 @@
+       -dynamic-linker " LINUX_DYNAMIC_LINKER "} \
+     %{static:-static}}"
+ 
++/* crtstuff through .init_array and .fini_array, as GCC 4.7's
++   initfini-array.h (which config.gcc's gcc_cv_initfini_array=yes for
++   riscv stands for; GCC 4.6 does not have it): musl has no .init on
++   RISC-V (no crti.s; riscv/crti.S is empty), so frame_dummy in .init
++   never ran and static C++ programs had no EH frames registered.  */
++#undef INIT_SECTION_ASM_OP
++#undef FINI_SECTION_ASM_OP
++#define INIT_ARRAY_SECTION_ASM_OP
++#define FINI_ARRAY_SECTION_ASM_OP

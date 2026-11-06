@@ -8,6 +8,10 @@
 #define O_TRUNC 512
 #define O_APPEND 1024
 #define O_BINARY 0
+#define O_NOCTTY 0
+#define O_CLOEXEC 0
+#define O_EXCL 0
+#define O_TEXT 0
 #define F_GETFL 3
 #define F_SETFL 4
 #define AT_FDCWD (-100)

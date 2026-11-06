@@ -2,6 +2,8 @@
 .global main
 .global exit
 .global ecall6
+.global abort
+.global abort_print_ra
 _start:
 	ld a0, sp, 0
 	addi a1, sp, 8
@@ -17,3 +19,6 @@ ecall6:
 	mv a5, a6
 	ecall
 	jalr zero, ra, 0
+abort:
+	mv a0, ra
+	jal ra, abort_print_ra

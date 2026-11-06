@@ -1,0 +1,167 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
+#include <tilck_gen_headers/config_mm.h>
+#include <tilck/common/basic_defs.h>
+
+#include <tilck/kernel/process.h>
+#include <tilck/kernel/process_int.h>
+#include <tilck/kernel/errno.h>
+#include <tilck/kernel/paging.h>
+#include <tilck/kernel/paging_hw.h>
+#include <tilck/kernel/process_mm.h>
+#include <tilck/kernel/test/fork.h>
+
+/*
+ * Aegis-V: the child's fds refer to the parent's open file descriptions
+ * (shared offset, as on Linux): each handle is retained, not copied, so
+ * the child's mappings keep pointing at the same handle (see vfs_dup()).
+ */
+STATIC int fork_dup_all_handles(struct process *pi)
+{
+   ASSERT(!is_preemption_enabled());
+
+   for (u32 i = 0; i < KRN_MAX_HANDLES; i++) {
+
+      fs_handle dup_h = NULL;
+
+      if (!pi->handles[i])
+         continue;
+
+      VERIFY(vfs_dup(pi->handles[i], &dup_h) == 0);
+      ASSERT(dup_h == pi->handles[i]);
+   }
+
+   return 0;
+}
+
+// Returns child's pid
+int do_fork(regs_t *user_regs, bool vfork)
+{
+   int pid;
+   int rc = -EAGAIN;
+   struct task *child = NULL;
+   pdir_t *new_pdir = NULL;
+   struct task *curr = get_curr_task();
+   struct process *curr_pi = curr->pi;
+
+   disable_preemption();
+
+   ASSERT(curr != NULL);
+   ASSERT_TASK_STATE(atomic_load(&curr->state), TASK_STATE_RUNNING);
+
+   if ((pid = create_new_pid()) < 0)
+      goto out; /* NOTE: rc is already set to -EAGAIN */
+
+   if (vfork) {
+
+      if (!(child = allocate_new_process(curr, pid, curr_pi->pdir)))
+         goto oom_case;
+
+   } else {
+
+      if (FORK_NO_COW)
+         new_pdir = pdir_deep_clone(curr_pi->pdir);
+      else
+         new_pdir = pdir_clone(curr_pi->pdir);
+
+      if (!new_pdir)
+         goto oom_case;
+
+      if (!(child = allocate_new_process(curr, pid, new_pdir)))
+         goto oom_case;
+
+      /* Set new_pdir in order to avoid its double-destruction */
+      new_pdir = NULL;
+   }
+
+   /* Child's kernel stack must be set */
+   ASSERT(child->kernel_stack != NULL);
+
+   atomic_store(&child->state, TASK_STATE_RUNNABLE);
+   child->running_in_kernel = 0;
+   task_info_reset_kernel_stack(child);
+
+   ASSERT(curr != NULL);
+   ASSERT(curr == get_curr_task());
+   ASSERT(curr->state_regs != NULL);
+
+   child->state_regs--; // make room for a regs_t struct in child's stack
+   *child->state_regs = *user_regs; // copy parent's regs_t
+   set_return_register(child->state_regs, 0);
+
+   // Make the parent to get child's pid as return value.
+   set_return_register(user_regs, (ulong) child->tid);
+
+   if (fork_dup_all_handles(child->pi) < 0)
+      goto oom_case;
+
+   add_task(child);
+
+   if (vfork) {
+
+      /*
+       * Park the parent in TASK_STATE_STOPPED until the child execs
+       * or dies. vfork_stopped distinguishes "stopped because of
+       * vfork" from a SIGSTOP, which matters for
+       * signal_wakeup_task() (which won't wake a vfork-stopped
+       * task for a killing signal — see signal.c).
+       */
+      curr->vfork_stopped = true;
+      task_change_state(curr, TASK_STATE_STOPPED);
+
+   } else {
+
+      /*
+       * X86-specific note:
+       * Force the CR3 reflush using the current (parent's) pdir.
+       * Without doing that, COW on parent's pages doesn't work immediately.
+       * That is better than invalidating all the pages affected, one by one.
+       */
+
+      set_curr_pdir(curr_pi->pdir);
+   }
+
+   enable_preemption();
+
+   if (vfork) {
+
+      /*
+       * Call the scheduler to wait until the child dies or calls execve().
+       * NOTE: we won't be woken up by a signal here, see signal.c.
+       */
+      schedule();
+
+      /*
+       * If we're past schedule() then the vfork-completion code in
+       * process.c transitioned us back to RUNNABLE (and the
+       * scheduler now to RUNNING) and cleared vfork_stopped.
+       */
+      ASSERT(!curr->vfork_stopped);
+
+      /* Check that the child died or called execve() */
+      ASSERT(
+         (child->pi->did_call_execve && !child->pi->vforked) ||
+         atomic_load(&child->state) == TASK_STATE_ZOMBIE
+      );
+   }
+
+   return child->tid;
+
+
+oom_case:
+
+   rc = -ENOMEM;
+
+   if (new_pdir)
+      pdir_destroy(new_pdir);
+
+   if (child) {
+      atomic_store(&child->state, TASK_STATE_ZOMBIE);
+      free_common_task_allocs(child);
+      free_task(child);
+   }
+
+out:
+   enable_preemption();
+   return rc;
+}

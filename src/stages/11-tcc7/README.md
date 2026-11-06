@@ -1,0 +1,61 @@
+# 11 — tcc7 (upstream tcc mob)
+
+Kronos `/bin/tcc6` compiles upstream TinyCC mob. The result `/bin/tcc7` compiles itself twice; `/bin/tcc7b` ≡ `/bin/tcc7c`.
+
+**Source:** https://repo.or.cz/tinycc.git `e23dabed154a8495f3ac1ff3cc9d04fa1c207893` (2026-10-16). LGPL-2.1.
+**Archive:** `build/sources/tcc-mob-e23dabed.tar` (gitignored), sha256 `7d006a2acaeb459970caf8e1d5f56c6cc98391255998a26c819b446ab7a3ec66`.
+**Config:** `src/config.h`. `CONFIG_TCC_PREDEFS=0`: `tccdefs.h` is read at run time from `/lib/tcc7/include`, so the host `c2str` generator is not used.
+**Our changes:** whole-file copies in `src/override/` (same path as in the archive), each started from the archive file. Tests are in `tests/`, planted under `/src/t7/`, built by `/bin/tcc7b` with `-static` and run after `hello from tcc7`. `-static` because Kronos applies no dynamic relocations: in a default (dynamic) tcc7b link every GOT entry (`stdin`/`stdout`/`stderr`, `errno`, the address of an asm label) stays 0.
+
+- `include/tccdefs.h`: `__ATOMIC_RELAXED`…`__ATOMIC_SEQ_CST` (0–5, as `stdatomic.h`) and `__GCC_ATOMIC_*_LOCK_FREE` = 2, which GCC predefines and Tilck uses; `__riscv_xlen` guard (riscv64-gen.c already predefines it). Test `predefs.c`, UART `predefs ok`.
+- `riscv64-asm.c`: constraint `K` (constant 0…31, as GCC's CSR immediate); `sret`, `mret`, `sfence.vma [rs1[, rs2]]`. Tests `kconst.c` (`kconst ok`), `priv.c` (`priv ok`, checks the encodings).
+- `riscv64-tok.h`: tokens `sret`, `mret`, `sfence.vma` for the above.
+- `tccasm.c`: `.macro NAME` … `.endm` without parameters (Tilck `asm_defs.h`). The body tokens are recorded like `.rept` and replayed where `NAME` stands as an instruction; a macro lives until the end of its `.S` file. Parameters give "macro parameters not supported". Test `macro.S` + `macro-main.c`, UART `macro ok`.
+- `tcctok.h`: directives `.macro`, `.endm` (before `.section`, which stays last).
+- `tccgen.c`: `__attribute__((packed))` on an `enum` (before the tag or after `}`) picks the smallest of char/short/int that holds the values, signedness unchanged. Test `penum.c`, UART `penum ok`.
+
+Stage 12 (Tilck) gaps, GAS behaviour Tilck's riscv `.S` files rely on. Test `gasdir.S` + `gasdir-main.c`, UART `gasdir ok` (runs the code, compares encodings, reads its own section flags):
+
+- `tccasm.c`: C integer suffixes (`0x6000UL`) in asm numbers; on RISC-V `.align N` is 2^N bytes and `.word` is 32 bits; `.dword` (= `.quad`); `.comm NAME, SIZE[, ALIGN]` (global `SHN_COMMON`); a new `.section .text*` without flags is `"ax"`, `.data*`/`.sdata*` `"aw"`.
+- `tcctok.h`: directives `.dword`, `.comm`.
+- `riscv64-asm.c`: R-type mnemonics with an immediate last operand are their I-type form (`add a3, a3, 8`, `srl a0, a0, 12`); one-operand `fscsr rs` / `fsrm rs`; S-mode CSR names `sstatus` `sie` `stvec` `scounteren` `sscratch` `sepc` `scause` `stval` `sip` `satp`; any symbol operand is PC-relative and keeps its addend, also a defined `.global` label (was "operand expected"), and `la` is `lla` (auipc + addi), as GAS without `.option pic` (mob used a GOT and `lw`, a 32-bit load); a section that gets instructions is at least 4-aligned.
+- `riscv64-tok.h`: tokens for the CSR names.
+- `include/tccdefs.h`: `__atomic_load_n`, `__atomic_store_n`, `__atomic_exchange_n`, `__atomic_compare_exchange_n` (GCC's value forms, Tilck `atomics.h`) as macros over tcc's generic `__atomic_*`. Test `atomicn.c` (built with `/src/tcc7/lib/atomic.S`, includes `lib/stdatomic.c`), UART `atomicn ok`.
+- `tccelf.c`: linker symbols `__bss_start` (start of `.bss`, as GNU ld's default script) and `__bss_stop` (end of `.bss`, as Linux-style kernel scripts), defined only when referenced (Tilck riscv `start.S` clears `.bss` with them). Test `bssym.c`, UART `bssym ok`.
+
+Plan 2 (Tilck boot) gaps:
+
+- `-fno-pic` (`tcc.h`: `TCCState.nopic`; `libtcc.c`: `-f[no-]pic`/`-f[no-]PIC`; `riscv64-gen.c` `load_symofs()`): every symbol, not only `static` ones, is reached PC-relative (`auipc` + `addi`/`ld`/`sd`, `R_RISCV_PCREL_HI20`), as GCC `-mcmodel=medany`; mob went through the GOT (`R_RISCV_GOT_HI20`) and loaded absolute link-time addresses, which miss when Tilck's `start.S` runs C before paging. Without the flag mob's behaviour is unchanged. Test `nopic.c` + `nopic-ext.c` (a global of another unit, a function pointer, an extern call), built with `-fno-pic`, UART `nopic ok`; `kronos.py` checks that `/bin/t7-nopic` (`snap nopic`, `artifacts/t7-nopic.elf`) and `tilck.elf` have no `.got` section (a static link makes one only for GOT relocations).
+- `riscv64-asm.c`: a conditional branch to a label (`bnez a6, _wait_forerver`, `blt t0, t1, 1b`) is an inverted short branch over `jal x0, label` (GAS's relaxed form). mob emitted an inverted branch of +10 bytes and `auipc t0` without its `jalr`, so the `R_RISCV_CALL` relocation patched the next instruction (`sd zero, (a3)` became `sd s4, 0(a3)` in `start.S`) and `t0` was clobbered. `call sym` links: `jalr ra, 0(ra)` (mob had `rd` = zero, so a called function returned to the `auipc`). Test `branch.S` + `branch-main.c` (forward/backward, named/numeric labels, `beqz`/`bnez`/`bgt`/`ble`/`bgeu`, `t0` live across branches, a `call` that returns), UART `branch ok`.
+
+Plan 2 phase 3 (before musl), `riscv64-gen.c` constants (`12-tilck/src/sbi/sbi.c` still has its old workarounds):
+
+- `store()` to a constant address put the address in `s0`, the frame pointer: the function's locals and its epilogue (`addi sp, s0, …`) then went wrong. It uses `t0`, the scratch register `load_symofs()` uses for stores. Test `cstore.c` (char/short/int/long/double stores to `0x00F00000`, a 64-bit address, `0x7ffff800`; locals read afterwards), UART `cstore ok`.
+- `lui` sign-extends. A pointer constant with bit 31 set and the upper word 0 (`(char *)0x80200000`) was loaded with `lui` + `addiw` and became `0xffff…`; it is zero-extended like an `unsigned long`. A load or store at such a constant address (or at `0x7ffff800`…`0x7fffffff`, where the rounded upper part reaches bit 31) builds the address with `load_large_constant()`. That function lost the carries of its rounded 12-bit chunks for some values (`0x12347b57ff9b` came out as `0x12347b47ff9b`): pi now gets the carry when `(uint32_t)fc >= 0x7ff7ff80`, and the upper chunk includes the rounding of the lower one. Test `luiext.c` (pointer values, a 64-bit constant, load and store at `0x80200000`, Kronos's KFS magic `KFS1`), UART `luiext ok`.
+
+- `tcctools.c` (`tcc -ar`, found building musl's `libc.a`): the size fields of the member headers and of the symbol index were written with `"%-10d"`. Kronos libc.c ignores the `-` flag for numbers and right-aligns them, and the linker's `read_ar_header()` overwrites the field's last byte with a NUL, so every size lost its last digit: the archive read as having no symbols, and links against it left everything unresolved. `ar_size()` writes the number and pads it with spaces itself (on a host the archive is byte-identical). Test `arlink-lib.c` + `arlink-main.c`: kmain builds `/build/t7/libarlink.a` with `/bin/tcc7b -ar rcs` and links the test against it, UART `arlink ok`.
+
+- `riscv64-asm.c` (plan 4 phase 2, found by rung build1): `lr.w`/`lr.d` were encoded with AMOAND's funct5 (`01100`) and `sc.w`/`sc.d` with AMOMINU's (`11000`), so musl's riscv64 `a_cas` zeroed the word instead of loading it. Every musl atomic is built on `a_cas`: `malloc`'s `a_or_64`/`a_and_64` cleared `mal.binmap`, no free chunk was ever found again, and each small `malloc` took a new page of heap (a 64-byte `malloc`/`free` loop grew `brk` by 4096 bytes per call); bash ran out of memory in findutils' `configure` (`xmalloc: cannot allocate 32 bytes`). Now LR `00010`, SC `00011` (the AMOs were right). Test `atomicn.c`: the four words of `lr.w.aqrl a0, (a2)`, `sc.w.aqrl a1, a4, (a2)`, `lr.d a3, (a5)`, `sc.d.rl t3, t3, (a0)` against GNU as (`0x1606252f`, `0x1ee625af`, `0x1007b6af`, `0x1bc53e2f`), and musl's `a_cas` run (a swap that must happen, one that must not); before the fix `exit 7`, `atomicn fail`.
+
+- `riscv64-gen.c` `gfunc_epilog()` (plan 4 phase 3, found by rung binutils): every function ended with `addi sp, s0, N` (`mv sp, s0`), then `ld ra, -8(s0)`, `ld s0, -16(s0)`, `ret`, so for two instructions the saved `ra` and `s0` lay below `sp`. RISC-V has no red zone: a trap taken there in kernel mode pushes its 320-byte register frame below `sp`, and Tilck's trap entry stores `sscratch` (0 in the kernel) exactly over the saved `s0`. The caller then ran with `s0 = 0`: in rung binutils a timer interrupt hit the end of `sys_fstat64()` (`make` in `ld/`, about 10 minutes in), the syscall dispatcher loaded through `s0 - 56` (`stval 0xffffffffffffffc8`), and the panic path's `fault_resumable_call()` resumed with a clobbered frame, ran the stack down over the kernel image's first 110 KB and the SBI shim, and ended in an endless store-page-fault loop at the trap entry (`scause 0xf`, a garbage `sp`, read with QMP `info registers` and `x`); plan 3's rare hang (12-tilck README "Kernel stack") had the same signature. A signal frame pushed on a user stack at that moment does the same to a user program. Now `ld ra, -8(s0)`, `mv t0, s0`, `ld s0, -16(s0)`, `addi sp, t0, N`, `ret` (one instruction more per function; `t0` is free at the epilogue). Test `epilog.c`: four functions (a leaf with locals, a variadic one, a 4 KB frame, one calling the others) and `main` are scanned from their address to their `ret`: after an `addi sp, rX, imm` with `rX` other than `sp` no load may use `s0`; then they are called. UART `epilog ok`; before the fix (built by a host cross tcc of the same sources and run on Tilck) `exit 1`. Everything built by tcc changes: tcc7b, Tilck, musl, the seed and every rung (new sha256s in their READMEs).
+
+Known mob codegen gap not fixed: a plain read of a local `register ... __asm__("sp")` variable is not bound to the register (Tilck `get_stack_ptr()`, overridden in stage 12).
+
+**Compat shims** (`src/compat*`, planted under `/src/tcc7/`). Kronos headers are not changed:
+
+- `compat-include/sys/mman.h`: `tccrun.c` includes it, and Kronos has none. `mmap`/`munmap`/`mprotect` are in libc.c.
+- `compat-include/{math,stdio,stdlib,string,unistd}.h`: `#include_next` plus declarations Kronos lacks: `ldexpl`, `freopen`, `realpath`, `strpbrk`, `environ`. Without them the pointer results get truncated to int.
+- `compat-include/stdlib.h` also hides Kronos's extern `dl*` prototypes. Otherwise mob ignores `static` on its own `dl*` stubs, and they clash with libc.c's ("defined twice").
+- `compat.c`: `environ`, `ldexpl` (powers of two in long double, because Kronos `ldexp` is an int stub), `realpath` (copies the path). Linked into tcc7, tcc7b, tcc7c.
+- `compat-include/stdlib.h` + `compat.c`: `strtold(s, e)` becomes `*compat_strtold(s, e)`. tcc6 keeps only `a0` of a long double call result (`07-tcc/src/tccgen.c` sets no `r2` for it), so tcc7 got `parse_number`'s long double literals without their high word, and tcc7b ≢ tcc7c once libc.c's `strtold` became real. `compat_strtold` calls libc.c's `strtold` as a two-`unsigned long` struct and returns a pointer to the value. Test `floatlit.c`, UART `floatlit ok`.
+- `compat-crt.s`: `/lib/crt.s` in standard operand syntax (`ld a0, 0(sp)`). mob's assembler rejects the 0.9.26 form. Used for everything tcc7 builds.
+
+`lib/lib-arm64.c` is not linked. Kronos libc.c now has the same binary128 `__*tf*` helpers (ported from it), and linking both gives "defined twice".
+
+**Needs** (fixed together with this stage): tcc6 zero-extends `unsigned int` → 64-bit on riscv64 (`07-tcc/src/tccgen.c`, test `10-tcc/tests/mob-zext.c`, UART `zext ok`). Kronos libc.c honours `%.*s` (mob's `-DX=v`) and has real long double helpers.
+
+Kronos libc.c has real `strtod`/`strtof`/`strtold` (exact 128-bit decimal mantissa, binary128 scaling) and `__floatundisf`/`__floatundidf`/`__fixunssfdi`/`__fixunsdfdi`. Test `floatlit.c`, built by tcc6 (`-DFLOATLIT6`, UART `floatlit6 ok`) and by tcc7b (`floatlit ok`).
+
+**Known gap:** tcc6 itself still drops the high word of a long double call result, so tcc6-compiled long double literals and `strtold()` calls are wrong; `floatlit6` skips those checks.
+
+tcc7b and tcc7c are linked `-static` too (since stage 12), so tcc7b's own `stderr` works and its error messages reach the UART.

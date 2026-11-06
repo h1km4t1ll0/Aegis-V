@@ -1,0 +1,86 @@
+Stage 13's mkustar for rung gcc4 (19-gcc464 README, rung gcc4): libstdc++'s
+headers put names of 100 bytes and more into /usr
+(usr/include/c++/4.6.4/ext/pb_ds/detail/cc_hash_table_map_/...), and 40
+more directories to rootfs-gcc3.tar's 36 (the table had 64). The first
+gcc4 run stopped at packing with
+`mkustar: name too long usr/include/c++/4.6.4/ext/pb_ds/...`. A long name
+goes into the ustar prefix and name fields (rung-init reads the prefix);
+the directory table holds 1024 names of up to 255 bytes. An archive whose
+names are all under 99 bytes comes out byte for byte as before.
+
+--- a/mkustar.c
++++ b/mkustar.c
+@@ -3,8 +3,9 @@
+  * its parent directories. mtime 0, uid/gid 0, directories 0755, a file
+  * with the permission bits of its stat() mode; with -e (for Kronos, whose
+  * stat() says 0777 for every file) 0755 for an ELF executable (ET_EXEC),
+- * 0644 for the rest. The same input gives the same bytes. Names must fit
+- * the 100-byte name field. Prints "mkustar ok N files". */
++ * 0644 for the rest. The same input gives the same bytes. A name of 100
++ * bytes or more is split at a '/' into the ustar prefix (at most 155
++ * bytes) and name fields. Prints "mkustar ok N files". */
+ #include <fcntl.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -15,7 +16,7 @@
+ static int ofd;
+ static char hdr[512];
+ static char zero[512];
+-static char dirs[64][100];
++static char dirs[1024][256];
+ static int ndirs;
+ 
+ static void die(const char *a, const char *b)
+@@ -54,12 +55,26 @@
+                    unsigned long mode)
+ {
+     unsigned long sum;
++    unsigned long n;
++    unsigned long k;
+     int i;
+ 
+-    if (strlen(name) >= 100)
+-        die("name too long ", name);
++    /* PREFIX/NAME: the first '/' after which the rest fits */
++    n = strlen(name);
++    k = 0;
++    if (n >= 100) {
++        for (k = 1; k < n - 1; k = k + 1)
++            if (name[k] == '/' && n - k - 1 < 100)
++                break;
++        if (k >= n - 1 || k > 155)
++            die("name too long ", name);
++    }
+     memset(hdr, 0, sizeof(hdr));
+-    strcpy(hdr, name);
++    if (k > 0) {
++        memcpy(hdr + 345, name, k);
++        strcpy(hdr, name + k + 1);
++    } else
++        strcpy(hdr, name);
+     octal(hdr + 100, 8, mode);
+     octal(hdr + 108, 8, 0);
+     octal(hdr + 116, 8, 0);
+@@ -80,11 +95,11 @@
+ /* entries for the parent directories of name not written yet */
+ static void parents(const char *name)
+ {
+-    char d[100];
++    char d[256];
+     unsigned long i;
+     int k;
+ 
+-    for (i = 0; name[i] && i < 98; i = i + 1) {
++    for (i = 0; name[i] && i < 254; i = i + 1) {
+         if (name[i] != '/')
+             continue;
+         memcpy(d, name, i + 1);
+@@ -94,7 +109,7 @@
+                 break;
+         if (k < ndirs)
+             continue;
+-        if (ndirs == 64)
++        if (ndirs == 1024)
+             die("too many directories", "");
+         strcpy(dirs[ndirs], d);
+         ndirs = ndirs + 1;

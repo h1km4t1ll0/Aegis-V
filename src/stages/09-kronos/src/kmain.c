@@ -12,88 +12,86 @@ static char *av_tcc5[20];
 static char *av_ver5[3];
 static char *av_tcc6[20];
 static char *av_ver6[3];
-static char *av_cmp56[4];
 static char *av_hello6[16];
 static char *av_runhello[2];
-static char *av_gccver[16];
-static char *av_rungccver[2];
-static char *av_xstrdup[4];
-static char *av_runxstrdup[2];
-static char *av_gengen[4];
-static char *av_rungenh[3];
-static char *av_gmhdr[4];
-static char *av_rungmhdr[2];
-static char *av_genmodes[4];
-static char *av_rungenm[4];
-static char *av_rungenmc[3];
-static char *av_rungenh2[4];
-static char *av_rungenmin[4];
-static char *av_genflags[4];
-static char *av_rungenf[4];
-static char *av_gencodes[4];
-static char *av_rungenc[4];
-static char *av_genconfig[4];
-static char *av_rungencfg[4];
-static char *av_genconst[4];
-static char *av_runconst[4];
-static char *av_genemit[4];
-static char *av_runemit[4];
-static char *av_genrecog[4];
-static char *av_runrecog[4];
-static char *av_genextract[4];
-static char *av_runextract[4];
-static char *av_genoutput[4];
-static char *av_runoutput[4];
-static char *av_genopinit[4];
-static char *av_runopinit[4];
-static char *av_genpeep[4];
-static char *av_runpeep[4];
-static char *av_genattr[4];
-static char *av_runattr[4];
-static char *av_genpreds[4];
-static char *av_runpredsh[5];
-static char *av_runpredsc[4];
-static char *av_gencheck[4];
-static char *av_runcheck[3];
-static char *av_genattrtab[4];
-static char *av_runattrtab[4];
-static char *av_rungencrtl[3];
-static char *av_gengtype[4];
-static char *av_rungty[2];
-static char *av_cc1[4];
-static char *av_runc1[8];
-static char *av_hellogcc[16];
-static char *av_runhelg[2];
-static char *av_cc1src[22];
-static char *av_cc12[4];
-static char *av_runc12[8];
-static char *av_helloself[16];
-static char *av_runhs[2];
-static char srcbuf[256];
-static char dstbuf[256];
-
-static int blob_has(const unsigned char *p, unsigned long n, const char *s)
-{
-    unsigned long i;
-    unsigned long j;
-    unsigned long m;
-
-    m = 0;
-    while (s[m])
-        m = m + 1;
-    if (n < m)
-        return 0;
-    i = 0;
-    while (i + m <= n) {
-        j = 0;
-        while (j < m && p[i + j] == (unsigned char)s[j])
-            j = j + 1;
-        if (j == m)
-            return 1;
-        i = i + 1;
-    }
-    return 0;
-}
+static char *av_zext6[13];
+static char *av_runzext6[2];
+static char *av_tcc6b[20];
+static char *av_tcc6c[20];
+static char *av_cmp66[4];
+static char *av_tcc7[20];
+static char *av_tcc7b[20];
+static char *av_tcc7c[20];
+static char *av_cmp77[4];
+static char *av_hello7[13];
+static char *av_runhello7[2];
+static char *av_fl6[13];
+static char *av_runfl6[2];
+static char *av_t7cc_floatlit[14];
+static char *av_t7run_floatlit[2];
+static char *av_t7cc_kconst[14];
+static char *av_t7run_kconst[2];
+static char *av_t7cc_priv[14];
+static char *av_t7run_priv[2];
+static char *av_t7cc_macro[14];
+static char *av_t7run_macro[2];
+static char *av_t7cc_penum[14];
+static char *av_t7run_penum[2];
+static char *av_t7cc_predefs[14];
+static char *av_t7run_predefs[2];
+static char *av_t7cc_gasdir[14];
+static char *av_t7run_gasdir[2];
+static char *av_t7cc_bssym[14];
+static char *av_t7run_bssym[2];
+static char *av_t7cc_atomicn[14];
+static char *av_t7run_atomicn[2];
+static char *av_t7cc_nopic[15];
+static char *av_t7run_nopic[2];
+static char *av_t7cc_branch[14];
+static char *av_t7run_branch[2];
+static char *av_t7cc_cstore[14];
+static char *av_t7run_cstore[2];
+static char *av_t7cc_luiext[14];
+static char *av_t7run_luiext[2];
+static char *av_t7cc_epilog[14];
+static char *av_t7run_epilog[2];
+static char *av_arl_cc[7];
+static char *av_arl_ar[6];
+static char *av_t7cc_arlink[14];
+static char *av_t7run_arlink[2];
+static char *av_hinst_cc[14];
+static char *av_hinst[2];
+static char *av_uapi_cc[16];
+static char *av_uapi[2];
+static char *av_gencfg_cc[14];
+static char *av_gencfg[2];
+static char *av_tobj[9];
+static char *av_tlink[3];
+static char *av_sbi[3];
+static char *av_tinit[14];
+static char *av_tproc[14];
+static char *av_tchild[14];
+static char *av_mgen_cc[14];
+static char *av_mgen[4];
+static char *av_mar[3];
+static char *av_mcrt1[9];
+static char *av_mcrti[9];
+static char *av_mcrtn[9];
+static char *av_mhello[18];
+static char *av_mproc[18];
+static char *av_mmem[18];
+static char *av_mhard[18];
+static char *av_mtar_cc[14];
+static char *av_mtar[6];
+static char *av_sar[3];
+static char *av_sprog[3];
+static char *av_stree_cc[14];
+static char *av_stree[13];
+static char *av_star[6];
+static char sp_rsp[256];
+static char tl_src[256];
+static char tl_dir[256];
+static char tl_obj[256];
 
 static void snap_file(const char *path, const char *tag)
 {
@@ -112,108 +110,288 @@ static void snap_file(const char *path, const char *tag)
     uart_puts("\n");
 }
 
-static void c_to_s(const char *src, char *dst)
+/* tcc7b build line for a tcc7 test (src2 may be 0).  -static: Kronos
+   applies no dynamic relocations, so a GOT entry (the address of an extern
+   symbol, e.g. priv_words) must be filled at link time. */
+static void t7_cc(char **av, char *out, char *src1, char *src2)
 {
-    unsigned long n;
-    unsigned long i;
-    const char *prefix;
-    unsigned long plen;
-
-    prefix = "/src/gcc/";
-    plen = 9;
-    n = 0;
-    i = 0;
-    while (prefix[i] && src[i] == prefix[i])
-        i = i + 1;
-    if (i == plen) {
-        dst[0] = '/';
-        dst[1] = 's';
-        dst[2] = 'r';
-        dst[3] = 'c';
-        dst[4] = '/';
-        dst[5] = 's';
-        dst[6] = 'e';
-        dst[7] = 'l';
-        dst[8] = 'f';
-        dst[9] = '/';
-        n = 10;
-        while (src[i] && n < 255) {
-            dst[n] = src[i];
-            n = n + 1;
-            i = i + 1;
-        }
-    } else {
-        while (src[n] && n < 255) {
-            dst[n] = src[n];
-            n = n + 1;
-        }
-    }
-    dst[n] = 0;
-    if (n >= 2 && dst[n - 2] == '.' && dst[n - 1] == 'c')
-        dst[n - 1] = 's';
+    av[0] = "/bin/tcc7b";
+    av[1] = "-o";
+    av[2] = out;
+    av[3] = "-I";
+    av[4] = "/include";
+    av[5] = "-nostdlib";
+    av[6] = "-static";
+    av[7] = "-Wl,-Ttext=0x10000";
+    av[8] = "-Wl,-oformat=elf64-little";
+    av[9] = "/src/tcc7/compat-crt.s";
+    av[10] = "/lib/libc.c";
+    av[11] = src1;
+    av[12] = src2;
+    av[13] = 0;
 }
 
-static int self_compile_all(void)
-{
-    unsigned char *list;
-    unsigned long n;
-    unsigned long i;
-    unsigned long s;
-    unsigned long slen;
-
-    list = kfs_get("/src/gcc/cc1-self.list", &n);
-    if (!list)
-        return 0;
-    i = 0;
-    while (i < n) {
-        while (i < n && (list[i] == '\n' || list[i] == '\r' || list[i] == ' '))
-            i = i + 1;
-        if (i >= n)
-            break;
-        s = 0;
-        while (i < n && list[i] != '\n' && list[i] != '\r' && s < 255) {
-            srcbuf[s] = list[i];
-            s = s + 1;
-            i = i + 1;
-        }
-        srcbuf[s] = 0;
-        if (s == 0)
-            continue;
-        c_to_s(srcbuf, dstbuf);
-        uart_puts("self ");
-        uart_puts(srcbuf);
-        uart_puts("\n");
-        run(av_cc1src[0], av_cc1src);
-        if (proc_last_exit() != 0 || !kfs_get(dstbuf, &slen) || slen < 8) {
-            uart_puts("self fail\n");
-            return 0;
-        }
-        uart_puts("self ok\n");
-    }
-    return 1;
-}
-
-static void md_gen(char **tcc_av, const char *start, const char *bin,
-                   const char *built, const char *snap, char **run_av,
-                   const char *out, const char *ok, const char *needle)
+/* build, then run; a failing test does not stop the next one */
+static void t7_test(char *name, char **cc, char **rv)
 {
     unsigned long len;
-    unsigned char *p;
 
-    uart_puts(start);
-    uart_puts("\n");
-    run(tcc_av[0], tcc_av);
-    if (!kfs_get(bin, &len))
+    run(cc[0], cc);
+    if (!kfs_get(rv[0], &len)) {
+        uart_puts(name);
+        uart_puts(" build fail\n");
         return;
-    uart_puts(built);
-    uart_puts("\n");
-    snap_file(bin, snap);
-    run(run_av[0], run_av);
-    p = kfs_get(out, &len);
-    if (p && blob_has(p, len, needle)) {
-        uart_puts(ok);
-        uart_puts("\n");
     }
+    run(rv[0], rv);
+    if (proc_last_exit() != 0) {
+        uart_puts(name);
+        uart_puts(" fail\n");
+    }
+}
+
+static unsigned long tl_cat(char *d, unsigned long n, const char *s)
+{
+    while (*s && n < 255) {
+        d[n] = *s;
+        n = n + 1;
+        s = s + 1;
+    }
+    d[n] = 0;
+    return n;
+}
+
+/* One tcc7b @cflags -c per line of the list: Tilck has three misc.c, so
+   each source gets its own object in objroot, named after its path (/ ->
+   __). A line starting with '/' is a KFS path (tcc's runtime atomics);
+   others are under srcroot. Every failure prints "<tag> obj fail <path>"
+   before returning 0; all built: "<tag> objs ok". */
+static int build_objs(char *list, char *cflags, char *srcroot, char *objroot, char *tag)
+{
+    char *p;
+    char *e;
+    unsigned long n;
+    unsigned long i;
+    unsigned long j;
+    unsigned long k;
+    unsigned long len;
+    int ok;
+
+    av_tobj[1] = cflags;
+    p = kfs_get(list, &n);
+    if (!p) {
+        uart_puts(tag);
+        uart_puts(" obj fail ");
+        uart_puts(list);
+        uart_puts("\n");
+        return 0;
+    }
+    e = p + n;
+    ok = 1;
+    while (p < e) {
+        i = 0;
+        while (p + i < e && p[i] != '\n')
+            i = i + 1;
+        if (i > 0 && i < 160) {
+            k = 0;
+            if (p[0] != '/')
+                k = tl_cat(tl_src, 0, srcroot);
+            memcpy(tl_src + k, p, i);
+            tl_src[k + i] = 0;
+            memcpy(tl_dir, tl_src, k + i + 1);
+            k = k + i;
+            while (k > 0 && tl_dir[k] != '/')
+                k = k - 1;
+            tl_dir[k] = 0;
+            k = tl_cat(tl_obj, 0, objroot);
+            j = 0;
+            while (j < i) {
+                if (p[j] == '/') {
+                    tl_obj[k] = '_';
+                    tl_obj[k + 1] = '_';
+                    k = k + 2;
+                } else {
+                    tl_obj[k] = p[j];
+                    k = k + 1;
+                }
+                j = j + 1;
+            }
+            tl_obj[k] = 0;
+            tl_cat(tl_obj, k, ".o");
+            run(av_tobj[0], av_tobj);
+            if (proc_last_exit() != 0 || !kfs_get(tl_obj, &len)) {
+                uart_puts(tag);
+                uart_puts(" obj fail ");
+                uart_puts(tl_src);
+                uart_puts("\n");
+                ok = 0;
+            }
+        }
+        p = p + i + 1;
+    }
+    if (ok) {
+        uart_puts(tag);
+        uart_puts(" objs ok\n");
+    }
+    return ok;
+}
+
+/* crt*.o: musl's Makefile adds -DCRT for them */
+static void musl_crt(char **av, char *src, char *out)
+{
+    av[0] = "/bin/tcc7b";
+    av[1] = "@/src/musl/cflags.rsp";
+    av[2] = "-DCRT";
+    av[3] = "-c";
+    av[4] = src;
+    av[5] = "-o";
+    av[6] = out;
+    av[7] = 0;
+}
+
+/* a static Linux riscv64 program on the guest-built musl (for Tilck);
+   tcc's lib-arm64.c gives the binary128 helpers (__addtf3, ...) that
+   musl's long double code calls, libgcc's part in a GCC build */
+static void musl_cc(char **av, char *out, char *src)
+{
+    av[0] = "/bin/tcc7b";
+    av[1] = "-o";
+    av[2] = out;
+    av[3] = "-nostdinc";
+    av[4] = "-I";
+    av[5] = "/build/musl/include";
+    av[6] = "-I";
+    av[7] = "/lib/tcc7/include";
+    av[8] = "-nostdlib";
+    av[9] = "-static";
+    av[10] = "-Wl,-Ttext=0x10000";
+    av[11] = "/build/musl/lib/crt1.o";
+    av[12] = "/build/musl/lib/crti.o";
+    av[13] = src;
+    av[14] = "/src/tcc7/lib/lib-arm64.c";
+    av[15] = "/build/musl/lib/libc.a";
+    av[16] = "/build/musl/lib/crtn.o";
+    av[17] = 0;
+}
+
+/* Stage 13: musl 1.1.24 (/src/musl: the pinned archive and 13-musl/src).
+   musl-gen writes the generated and installed headers, then one object
+   per SOURCES line, libc.a, crt*.o; the two test programs for Tilck and
+   musl-sysroot.tar are snapped. */
+static void build_musl(void)
+{
+    unsigned long len;
+
+    t7_test("musl-gen", av_mgen_cc, av_mgen);
+    if (!build_objs("/src/musl/SOURCES", "@/src/musl/cflags.rsp",
+                    "/src/musl/", "/build/musl/obj/", "musl"))
+        return;
+    run(av_mar[0], av_mar);
+    run(av_mcrt1[0], av_mcrt1);
+    run(av_mcrti[0], av_mcrti);
+    run(av_mcrtn[0], av_mcrtn);
+    if (!kfs_get("/build/musl/lib/libc.a", &len)
+        || !kfs_get("/build/musl/lib/crt1.o", &len)
+        || !kfs_get("/build/musl/lib/crti.o", &len)
+        || !kfs_get("/build/musl/lib/crtn.o", &len)) {
+        uart_puts("musl lib fail\n");
+        return;
+    }
+    uart_puts("musl built\n");
+    run(av_mhello[0], av_mhello);
+    run(av_mproc[0], av_mproc);
+    run(av_mmem[0], av_mmem);
+    run(av_mhard[0], av_mhard);
+    if (kfs_get("/build/musl/hello-musl", &len)
+        && kfs_get("/build/musl/musl-proc", &len)
+        && kfs_get("/build/tilck/mem", &len)
+        && kfs_get("/build/tilck/hard", &len)) {
+        uart_puts("musl progs built\n");
+        snap_file("/build/musl/hello-musl", "mhello");
+        snap_file("/build/musl/musl-proc", "mproc");
+        snap_file("/build/tilck/mem", "tmem");
+        snap_file("/build/tilck/hard", "thard");
+    } else
+        uart_puts("musl progs fail\n");
+    t7_test("mkustar", av_mtar_cc, av_mtar);
+    snap_file("/build/musl/musl-sysroot.tar", "msysroot");
+}
+
+/* Stage 14: one "/bin/tcc7b @RSP" per line of the list (each listfile is
+   a whole command line). Every failure prints "<tag> fail <rsp>"; all
+   built: "<tag> ok". */
+static int run_rsps(char *list, char *tag)
+{
+    char *p;
+    char *e;
+    unsigned long n;
+    unsigned long i;
+    int ok;
+
+    p = kfs_get(list, &n);
+    if (!p) {
+        uart_puts(tag);
+        uart_puts(" fail ");
+        uart_puts(list);
+        uart_puts("\n");
+        return 0;
+    }
+    e = p + n;
+    ok = 1;
+    while (p < e) {
+        i = 0;
+        while (p + i < e && p[i] != '\n')
+            i = i + 1;
+        if (i > 0 && i < 250) {
+            sp_rsp[0] = '@';
+            memcpy(sp_rsp + 1, p, i);
+            sp_rsp[i + 1] = 0;
+            run(av_sprog[0], av_sprog);
+            if (proc_last_exit() != 0) {
+                uart_puts(tag);
+                uart_puts(" fail ");
+                uart_puts(sp_rsp + 1);
+                uart_puts("\n");
+                ok = 0;
+            }
+        }
+        p = p + i + 1;
+    }
+    if (ok) {
+        uart_puts(tag);
+        uart_puts(" ok\n");
+    }
+    return ok;
+}
+
+/* Stage 14: the seed for Tilck (/src/seed: 14-seed/src and the pinned
+   archives). libtcc1.a, then tcc-m, kaem, the tools and rung-init (musl,
+   static), the tree under /build/seed and seed-rootfs.tar; rung-init and
+   the tar are snapped. */
+static void build_seed(void)
+{
+    unsigned long len;
+
+    if (!build_objs("/src/seed/LIBTCC1", "@/src/seed/libtcc1.rsp",
+                    "/src/tcc7/lib/", "/build/seed/obj/", "libtcc1"))
+        return;
+    run(av_sar[0], av_sar);
+    if (!kfs_get("/build/seed/usr/lib/tcc/libtcc1.a", &len)) {
+        uart_puts("libtcc1 fail\n");
+        return;
+    }
+    uart_puts("libtcc1 built\n");
+    if (!run_rsps("/src/seed/SEED", "seed progs"))
+        return;
+    snap_file("/build/seed/rung-init", "rinit");
+    t7_test("seed-tree", av_stree_cc, av_stree);
+    if (!kfs_get("/build/seed/LIST", &len))
+        return;
+    run(av_star[0], av_star);
+    if (proc_last_exit() == 0 && kfs_get("/build/seed/seed-rootfs.tar", &len)) {
+        uart_puts("seed built\n");
+        snap_file("/build/seed/seed-rootfs.tar", "seed");
+    } else
+        uart_puts("seed tar fail\n");
 }
 
 static void setup_args(void)
@@ -317,10 +495,6 @@ static void setup_args(void)
     av_ver6[0] = "/bin/tcc6";
     av_ver6[1] = "-version";
     av_ver6[2] = 0;
-    av_cmp56[0] = "/bin/cmp";
-    av_cmp56[1] = "/bin/tcc5";
-    av_cmp56[2] = "/bin/tcc6";
-    av_cmp56[3] = 0;
     av_hello6[0] = "/bin/tcc6";
     av_hello6[1] = "-o";
     av_hello6[2] = "/bin/hello6";
@@ -335,227 +509,306 @@ static void setup_args(void)
     av_hello6[11] = 0;
     av_runhello[0] = "/bin/hello6";
     av_runhello[1] = 0;
-    av_gccver[0] = "/bin/tcc6";
-    av_gccver[1] = "-o";
-    av_gccver[2] = "/bin/gccver";
-    av_gccver[3] = "-I";
-    av_gccver[4] = "/src/gcc";
-    av_gccver[5] = "-I";
-    av_gccver[6] = "/include";
-    av_gccver[7] = "-nostdlib";
-    av_gccver[8] = "-Wl,-Ttext=0x10000";
-    av_gccver[9] = "-Wl,-oformat=elf64-little";
-    av_gccver[10] = "/lib/crt.s";
-    av_gccver[11] = "/lib/libc.c";
-    av_gccver[12] = "/src/gcc/printver.c";
-    av_gccver[13] = "/src/gcc/version.c";
-    av_gccver[14] = 0;
-    av_rungccver[0] = "/bin/gccver";
-    av_rungccver[1] = 0;
-    av_xstrdup[0] = "/bin/tcc6";
-    av_xstrdup[1] = "@/src/gcc/xstrdup.rsp";
-    av_xstrdup[2] = 0;
-    av_runxstrdup[0] = "/bin/xstrdup";
-    av_runxstrdup[1] = 0;
-    av_gengen[0] = "/bin/tcc6";
-    av_gengen[1] = "@/src/gcc/gengenrtl.rsp";
-    av_gengen[2] = 0;
-    av_rungenh[0] = "/bin/gengenrtl";
-    av_rungenh[1] = "-h";
-    av_rungenh[2] = 0;
-    av_gmhdr[0] = "/bin/tcc6";
-    av_gmhdr[1] = "@/src/gcc/gmhdr.rsp";
-    av_gmhdr[2] = 0;
-    av_rungmhdr[0] = "/bin/gmhdr";
-    av_rungmhdr[1] = 0;
-    av_genmodes[0] = "/bin/tcc6";
-    av_genmodes[1] = "@/src/gcc/genmodes.rsp";
-    av_genmodes[2] = 0;
-    av_rungenm[0] = "/bin/genmodes";
-    av_rungenm[1] = "-h";
-    av_rungenm[2] = "/src/gcc/insn-modes.h";
-    av_rungenm[3] = 0;
-    av_rungenmc[0] = "/bin/genmodes";
-    av_rungenmc[1] = "/src/gcc/insn-modes.c";
-    av_rungenmc[2] = 0;
-    av_rungenh2[0] = "/bin/gengenrtl";
-    av_rungenh2[1] = "-h";
-    av_rungenh2[2] = "/src/gcc/genrtl.h";
-    av_rungenh2[3] = 0;
-    av_rungenmin[0] = "/bin/genmodes";
-    av_rungenmin[1] = "-m";
-    av_rungenmin[2] = "/src/gcc/min-insn-modes.c";
-    av_rungenmin[3] = 0;
-    av_genflags[0] = "/bin/tcc6";
-    av_genflags[1] = "@/src/gcc/genflags.rsp";
-    av_genflags[2] = 0;
-    av_rungenf[0] = "/bin/genflags";
-    av_rungenf[1] = "/src/gcc/riscv64.md";
-    av_rungenf[2] = "/src/gcc/insn-flags.h";
-    av_rungenf[3] = 0;
-    av_gencodes[0] = "/bin/tcc6";
-    av_gencodes[1] = "@/src/gcc/gencodes.rsp";
-    av_gencodes[2] = 0;
-    av_rungenc[0] = "/bin/gencodes";
-    av_rungenc[1] = "/src/gcc/riscv64.md";
-    av_rungenc[2] = "/src/gcc/insn-codes.h";
-    av_rungenc[3] = 0;
-    av_genconfig[0] = "/bin/tcc6";
-    av_genconfig[1] = "@/src/gcc/genconfig.rsp";
-    av_genconfig[2] = 0;
-    av_rungencfg[0] = "/bin/genconfig";
-    av_rungencfg[1] = "/src/gcc/riscv64.md";
-    av_rungencfg[2] = "/src/gcc/insn-config.h";
-    av_rungencfg[3] = 0;
-    av_genconst[0] = "/bin/tcc6";
-    av_genconst[1] = "@/src/gcc/genconstants.rsp";
-    av_genconst[2] = 0;
-    av_runconst[0] = "/bin/genconstants";
-    av_runconst[1] = "/src/gcc/riscv64.md";
-    av_runconst[2] = "/src/gcc/insn-constants.h";
-    av_runconst[3] = 0;
-    av_genemit[0] = "/bin/tcc6";
-    av_genemit[1] = "@/src/gcc/genemit.rsp";
-    av_genemit[2] = 0;
-    av_runemit[0] = "/bin/genemit";
-    av_runemit[1] = "/src/gcc/riscv64.md";
-    av_runemit[2] = "/src/gcc/insn-emit.c";
-    av_runemit[3] = 0;
-    av_genrecog[0] = "/bin/tcc6";
-    av_genrecog[1] = "@/src/gcc/genrecog.rsp";
-    av_genrecog[2] = 0;
-    av_runrecog[0] = "/bin/genrecog";
-    av_runrecog[1] = "/src/gcc/riscv64.md";
-    av_runrecog[2] = "/src/gcc/insn-recog.c";
-    av_runrecog[3] = 0;
-    av_genextract[0] = "/bin/tcc6";
-    av_genextract[1] = "@/src/gcc/genextract.rsp";
-    av_genextract[2] = 0;
-    av_runextract[0] = "/bin/genextract";
-    av_runextract[1] = "/src/gcc/riscv64.md";
-    av_runextract[2] = "/src/gcc/insn-extract.c";
-    av_runextract[3] = 0;
-    av_genoutput[0] = "/bin/tcc6";
-    av_genoutput[1] = "@/src/gcc/genoutput.rsp";
-    av_genoutput[2] = 0;
-    av_runoutput[0] = "/bin/genoutput";
-    av_runoutput[1] = "/src/gcc/riscv64.md";
-    av_runoutput[2] = "/src/gcc/insn-output.c";
-    av_runoutput[3] = 0;
-    av_genopinit[0] = "/bin/tcc6";
-    av_genopinit[1] = "@/src/gcc/genopinit.rsp";
-    av_genopinit[2] = 0;
-    av_runopinit[0] = "/bin/genopinit";
-    av_runopinit[1] = "/src/gcc/riscv64.md";
-    av_runopinit[2] = "/src/gcc/insn-opinit.c";
-    av_runopinit[3] = 0;
-    av_genpeep[0] = "/bin/tcc6";
-    av_genpeep[1] = "@/src/gcc/genpeep.rsp";
-    av_genpeep[2] = 0;
-    av_runpeep[0] = "/bin/genpeep";
-    av_runpeep[1] = "/src/gcc/riscv64.md";
-    av_runpeep[2] = "/src/gcc/insn-peep.c";
-    av_runpeep[3] = 0;
-    av_genattr[0] = "/bin/tcc6";
-    av_genattr[1] = "@/src/gcc/genattr.rsp";
-    av_genattr[2] = 0;
-    av_runattr[0] = "/bin/genattr";
-    av_runattr[1] = "/src/gcc/riscv64.md";
-    av_runattr[2] = "/src/gcc/insn-attr.h";
-    av_runattr[3] = 0;
-    av_genpreds[0] = "/bin/tcc6";
-    av_genpreds[1] = "@/src/gcc/genpreds.rsp";
-    av_genpreds[2] = 0;
-    av_runpredsh[0] = "/bin/genpreds";
-    av_runpredsh[1] = "-h";
-    av_runpredsh[2] = "/src/gcc/riscv64.md";
-    av_runpredsh[3] = "/src/gcc/tm-preds.h";
-    av_runpredsh[4] = 0;
-    av_runpredsc[0] = "/bin/genpreds";
-    av_runpredsc[1] = "/src/gcc/riscv64.md";
-    av_runpredsc[2] = "/src/gcc/insn-preds.c";
-    av_runpredsc[3] = 0;
-    av_gencheck[0] = "/bin/tcc6";
-    av_gencheck[1] = "@/src/gcc/gencheck.rsp";
-    av_gencheck[2] = 0;
-    av_runcheck[0] = "/bin/gencheck";
-    av_runcheck[1] = "/src/gcc/tree-check.h";
-    av_runcheck[2] = 0;
-    av_genattrtab[0] = "/bin/tcc6";
-    av_genattrtab[1] = "@/src/gcc/genattrtab.rsp";
-    av_genattrtab[2] = 0;
-    av_runattrtab[0] = "/bin/genattrtab";
-    av_runattrtab[1] = "/src/gcc/riscv64.md";
-    av_runattrtab[2] = "/src/gcc/insn-attrtab.c";
-    av_runattrtab[3] = 0;
-    av_rungencrtl[0] = "/bin/gengenrtl";
-    av_rungencrtl[1] = "/src/gcc/genrtl.c";
-    av_rungencrtl[2] = 0;
-    av_gengtype[0] = "/bin/tcc6";
-    av_gengtype[1] = "@/src/gcc/gengtype.rsp";
-    av_gengtype[2] = 0;
-    av_rungty[0] = "/bin/gengtype";
-    av_rungty[1] = 0;
-    av_cc1[0] = "/bin/tcc6";
-    av_cc1[1] = "@/src/gcc/cc1.rsp";
-    av_cc1[2] = 0;
-    av_runc1[0] = "/bin/cc1";
-    av_runc1[1] = "-quiet";
-    av_runc1[2] = "-I";
-    av_runc1[3] = "/include";
-    av_runc1[4] = "-o";
-    av_runc1[5] = "/src/hello/hello-gcc.s";
-    av_runc1[6] = "/src/hello/hello-gcc.c";
-    av_runc1[7] = 0;
-    av_hellogcc[0] = "/bin/tcc6";
-    av_hellogcc[1] = "-o";
-    av_hellogcc[2] = "/bin/hello-gcc";
-    av_hellogcc[3] = "-I";
-    av_hellogcc[4] = "/include";
-    av_hellogcc[5] = "-nostdlib";
-    av_hellogcc[6] = "-Wl,-Ttext=0x10000";
-    av_hellogcc[7] = "-Wl,-oformat=elf64-little";
-    av_hellogcc[8] = "/lib/crt.s";
-    av_hellogcc[9] = "/lib/libc.c";
-    av_hellogcc[10] = "/src/hello/hello-gcc.s";
-    av_hellogcc[11] = 0;
-    av_runhelg[0] = "/bin/hello-gcc";
-    av_runhelg[1] = 0;
-    av_cc1src[0] = "/bin/cc1";
-    av_cc1src[1] = "-quiet";
-    av_cc1src[2] = "-fno-unit-at-a-time";
-    av_cc1src[3] = "-fno-builtin";
-    av_cc1src[4] = "-I";
-    av_cc1src[5] = "/include";
-    av_cc1src[6] = "-o";
-    av_cc1src[7] = dstbuf;
-    av_cc1src[8] = srcbuf;
-    av_cc1src[9] = 0;
-    av_cc12[0] = "/bin/tcc6";
-    av_cc12[1] = "@/src/gcc/cc1-2.rsp";
-    av_cc12[2] = 0;
-    av_runc12[0] = "/bin/cc1-2";
-    av_runc12[1] = "-quiet";
-    av_runc12[2] = "-I";
-    av_runc12[3] = "/include";
-    av_runc12[4] = "-o";
-    av_runc12[5] = "/src/hello/hello-self.s";
-    av_runc12[6] = "/src/hello/hello-self.c";
-    av_runc12[7] = 0;
-    av_helloself[0] = "/bin/tcc6";
-    av_helloself[1] = "-o";
-    av_helloself[2] = "/bin/hello-self";
-    av_helloself[3] = "-I";
-    av_helloself[4] = "/include";
-    av_helloself[5] = "-nostdlib";
-    av_helloself[6] = "-Wl,-Ttext=0x10000";
-    av_helloself[7] = "-Wl,-oformat=elf64-little";
-    av_helloself[8] = "/lib/crt.s";
-    av_helloself[9] = "/lib/libc.c";
-    av_helloself[10] = "/src/hello/hello-self.s";
-    av_helloself[11] = 0;
-    av_runhs[0] = "/bin/hello-self";
-    av_runhs[1] = 0;
+    av_zext6[0] = "/bin/tcc6";
+    av_zext6[1] = "-o";
+    av_zext6[2] = "/bin/zext6";
+    av_zext6[3] = "-I";
+    av_zext6[4] = "/include";
+    av_zext6[5] = "-nostdlib";
+    av_zext6[6] = "-Wl,-Ttext=0x10000";
+    av_zext6[7] = "-Wl,-oformat=elf64-little";
+    av_zext6[8] = "/lib/crt.s";
+    av_zext6[9] = "/lib/libc.c";
+    av_zext6[10] = "/src/hello/mob-zext.c";
+    av_zext6[11] = 0;
+    av_runzext6[0] = "/bin/zext6";
+    av_runzext6[1] = 0;
+    av_tcc6b[0] = "/bin/tcc6";
+    av_tcc6b[1] = "-o";
+    av_tcc6b[2] = "/bin/tcc6b";
+    av_tcc6b[3] = "-DONE_SOURCE";
+    av_tcc6b[4] = "-DTCC_TARGET_RISCV64";
+    av_tcc6b[5] = "-DHAVE_FLOAT=1";
+    av_tcc6b[6] = "-DHAVE_LONG_LONG=1";
+    av_tcc6b[7] = "-I";
+    av_tcc6b[8] = "/src/tcc-full";
+    av_tcc6b[9] = "-I";
+    av_tcc6b[10] = "/include";
+    av_tcc6b[11] = "-nostdlib";
+    av_tcc6b[12] = "-Wl,-Ttext=0x10000";
+    av_tcc6b[13] = "-Wl,-oformat=elf64-little";
+    av_tcc6b[14] = "/lib/crt.s";
+    av_tcc6b[15] = "/lib/libc.c";
+    av_tcc6b[16] = "/src/tcc-full/tcc.c";
+    av_tcc6b[17] = 0;
+    av_tcc6c[0] = "/bin/tcc6b";
+    av_tcc6c[1] = "-o";
+    av_tcc6c[2] = "/bin/tcc6c";
+    av_tcc6c[3] = "-DONE_SOURCE";
+    av_tcc6c[4] = "-DTCC_TARGET_RISCV64";
+    av_tcc6c[5] = "-DHAVE_FLOAT=1";
+    av_tcc6c[6] = "-DHAVE_LONG_LONG=1";
+    av_tcc6c[7] = "-I";
+    av_tcc6c[8] = "/src/tcc-full";
+    av_tcc6c[9] = "-I";
+    av_tcc6c[10] = "/include";
+    av_tcc6c[11] = "-nostdlib";
+    av_tcc6c[12] = "-Wl,-Ttext=0x10000";
+    av_tcc6c[13] = "-Wl,-oformat=elf64-little";
+    av_tcc6c[14] = "/lib/crt.s";
+    av_tcc6c[15] = "/lib/libc.c";
+    av_tcc6c[16] = "/src/tcc-full/tcc.c";
+    av_tcc6c[17] = 0;
+    av_cmp66[0] = "/bin/cmp";
+    av_cmp66[1] = "/bin/tcc6b";
+    av_cmp66[2] = "/bin/tcc6c";
+    av_cmp66[3] = 0;
+    av_tcc7[0] = "/bin/tcc6";
+    av_tcc7[1] = "-o";
+    av_tcc7[2] = "/bin/tcc7";
+    av_tcc7[3] = "-DONE_SOURCE=1";
+    av_tcc7[4] = "-I";
+    av_tcc7[5] = "/src/tcc7";
+    av_tcc7[6] = "-I";
+    av_tcc7[7] = "/src/tcc7/compat-include";
+    av_tcc7[8] = "-I";
+    av_tcc7[9] = "/include";
+    av_tcc7[10] = "-nostdlib";
+    av_tcc7[11] = "-Wl,-Ttext=0x10000";
+    av_tcc7[12] = "-Wl,-oformat=elf64-little";
+    av_tcc7[13] = "/lib/crt.s";
+    av_tcc7[14] = "/lib/libc.c";
+    av_tcc7[15] = "/src/tcc7/compat.c";
+    av_tcc7[16] = "/src/tcc7/tcc.c";
+    av_tcc7[17] = 0;
+    av_tcc7b[0] = "/bin/tcc7";
+    av_tcc7b[1] = "-o";
+    av_tcc7b[2] = "/bin/tcc7b";
+    av_tcc7b[3] = "-DONE_SOURCE=1";
+    av_tcc7b[4] = "-I";
+    av_tcc7b[5] = "/src/tcc7";
+    av_tcc7b[6] = "-I";
+    av_tcc7b[7] = "/src/tcc7/compat-include";
+    av_tcc7b[8] = "-I";
+    av_tcc7b[9] = "/include";
+    av_tcc7b[10] = "-nostdlib";
+    av_tcc7b[11] = "-static";
+    av_tcc7b[12] = "-Wl,-Ttext=0x10000";
+    av_tcc7b[13] = "-Wl,-oformat=elf64-little";
+    av_tcc7b[14] = "/src/tcc7/compat-crt.s";
+    av_tcc7b[15] = "/lib/libc.c";
+    av_tcc7b[16] = "/src/tcc7/compat.c";
+    av_tcc7b[17] = "/src/tcc7/tcc.c";
+    av_tcc7b[18] = 0;
+    av_tcc7c[0] = "/bin/tcc7b";
+    av_tcc7c[1] = "-o";
+    av_tcc7c[2] = "/bin/tcc7c";
+    av_tcc7c[3] = "-DONE_SOURCE=1";
+    av_tcc7c[4] = "-I";
+    av_tcc7c[5] = "/src/tcc7";
+    av_tcc7c[6] = "-I";
+    av_tcc7c[7] = "/src/tcc7/compat-include";
+    av_tcc7c[8] = "-I";
+    av_tcc7c[9] = "/include";
+    av_tcc7c[10] = "-nostdlib";
+    av_tcc7c[11] = "-static";
+    av_tcc7c[12] = "-Wl,-Ttext=0x10000";
+    av_tcc7c[13] = "-Wl,-oformat=elf64-little";
+    av_tcc7c[14] = "/src/tcc7/compat-crt.s";
+    av_tcc7c[15] = "/lib/libc.c";
+    av_tcc7c[16] = "/src/tcc7/compat.c";
+    av_tcc7c[17] = "/src/tcc7/tcc.c";
+    av_tcc7c[18] = 0;
+    av_cmp77[0] = "/bin/cmp";
+    av_cmp77[1] = "/bin/tcc7b";
+    av_cmp77[2] = "/bin/tcc7c";
+    av_cmp77[3] = 0;
+    av_hello7[0] = "/bin/tcc7b";
+    av_hello7[1] = "-o";
+    av_hello7[2] = "/bin/hello7";
+    av_hello7[3] = "-I";
+    av_hello7[4] = "/include";
+    av_hello7[5] = "-nostdlib";
+    av_hello7[6] = "-Wl,-Ttext=0x10000";
+    av_hello7[7] = "-Wl,-oformat=elf64-little";
+    av_hello7[8] = "/src/tcc7/compat-crt.s";
+    av_hello7[9] = "/lib/libc.c";
+    av_hello7[10] = "/src/hello7/hello.c";
+    av_hello7[11] = 0;
+    av_runhello7[0] = "/bin/hello7";
+    av_runhello7[1] = 0;
+    av_fl6[0] = "/bin/tcc6";
+    av_fl6[1] = "-o";
+    av_fl6[2] = "/bin/floatlit6";
+    av_fl6[3] = "-DFLOATLIT6";
+    av_fl6[4] = "-I";
+    av_fl6[5] = "/include";
+    av_fl6[6] = "-nostdlib";
+    av_fl6[7] = "-Wl,-Ttext=0x10000";
+    av_fl6[8] = "-Wl,-oformat=elf64-little";
+    av_fl6[9] = "/lib/crt.s";
+    av_fl6[10] = "/lib/libc.c";
+    av_fl6[11] = "/src/t7/floatlit.c";
+    av_fl6[12] = 0;
+    av_runfl6[0] = "/bin/floatlit6";
+    av_runfl6[1] = 0;
+    t7_cc(av_t7cc_floatlit, "/bin/t7-floatlit", "/src/t7/floatlit.c", 0);
+    av_t7run_floatlit[0] = "/bin/t7-floatlit";
+    av_t7run_floatlit[1] = 0;
+    t7_cc(av_t7cc_kconst, "/bin/t7-kconst", "/src/t7/kconst.c", 0);
+    av_t7run_kconst[0] = "/bin/t7-kconst";
+    av_t7run_kconst[1] = 0;
+    t7_cc(av_t7cc_priv, "/bin/t7-priv", "/src/t7/priv.c", 0);
+    av_t7run_priv[0] = "/bin/t7-priv";
+    av_t7run_priv[1] = 0;
+    t7_cc(av_t7cc_macro, "/bin/t7-macro", "/src/t7/macro.S", "/src/t7/macro-main.c");
+    av_t7run_macro[0] = "/bin/t7-macro";
+    av_t7run_macro[1] = 0;
+    t7_cc(av_t7cc_penum, "/bin/t7-penum", "/src/t7/penum.c", 0);
+    av_t7run_penum[0] = "/bin/t7-penum";
+    av_t7run_penum[1] = 0;
+    t7_cc(av_t7cc_predefs, "/bin/t7-predefs", "/src/t7/predefs.c", 0);
+    av_t7run_predefs[0] = "/bin/t7-predefs";
+    av_t7run_predefs[1] = 0;
+    t7_cc(av_t7cc_gasdir, "/bin/t7-gasdir", "/src/t7/gasdir.S", "/src/t7/gasdir-main.c");
+    av_t7run_gasdir[0] = "/bin/t7-gasdir";
+    av_t7run_gasdir[1] = 0;
+    t7_cc(av_t7cc_bssym, "/bin/t7-bssym", "/src/t7/bssym.c", 0);
+    av_t7run_bssym[0] = "/bin/t7-bssym";
+    av_t7run_bssym[1] = 0;
+    t7_cc(av_t7cc_atomicn, "/bin/t7-atomicn", "/src/t7/atomicn.c", "/src/tcc7/lib/atomic.S");
+    av_t7run_atomicn[0] = "/bin/t7-atomicn";
+    av_t7run_atomicn[1] = 0;
+    /* -fno-pic: globals PC-relative, no GOT (Tilck runs C before paging) */
+    t7_cc(av_t7cc_nopic, "/bin/t7-nopic", "/src/t7/nopic.c", "/src/t7/nopic-ext.c");
+    av_t7cc_nopic[13] = "-fno-pic";
+    av_t7cc_nopic[14] = 0;
+    av_t7run_nopic[0] = "/bin/t7-nopic";
+    av_t7run_nopic[1] = 0;
+    t7_cc(av_t7cc_branch, "/bin/t7-branch", "/src/t7/branch.S", "/src/t7/branch-main.c");
+    av_t7run_branch[0] = "/bin/t7-branch";
+    av_t7run_branch[1] = 0;
+    t7_cc(av_t7cc_cstore, "/bin/t7-cstore", "/src/t7/cstore.c", 0);
+    av_t7run_cstore[0] = "/bin/t7-cstore";
+    av_t7run_cstore[1] = 0;
+    t7_cc(av_t7cc_luiext, "/bin/t7-luiext", "/src/t7/luiext.c", 0);
+    av_t7run_luiext[0] = "/bin/t7-luiext";
+    av_t7run_luiext[1] = 0;
+    t7_cc(av_t7cc_epilog, "/bin/t7-epilog", "/src/t7/epilog.c", 0);
+    av_t7run_epilog[0] = "/bin/t7-epilog";
+    av_t7run_epilog[1] = 0;
+    /* tcc -ar: an archive made on Kronos, then linked against */
+    av_arl_cc[0] = "/bin/tcc7b";
+    av_arl_cc[1] = "-c";
+    av_arl_cc[2] = "/src/t7/arlink-lib.c";
+    av_arl_cc[3] = "-o";
+    av_arl_cc[4] = "/build/t7/arlink-lib.o";
+    av_arl_cc[5] = 0;
+    av_arl_ar[0] = "/bin/tcc7b";
+    av_arl_ar[1] = "-ar";
+    av_arl_ar[2] = "rcs";
+    av_arl_ar[3] = "/build/t7/libarlink.a";
+    av_arl_ar[4] = "/build/t7/arlink-lib.o";
+    av_arl_ar[5] = 0;
+    t7_cc(av_t7cc_arlink, "/bin/t7-arlink", "/src/t7/arlink-main.c", "/build/t7/libarlink.a");
+    av_t7run_arlink[0] = "/bin/t7-arlink";
+    av_t7run_arlink[1] = 0;
+    /* Tilck stage: our tools and the uapi test are Kronos programs */
+    t7_cc(av_hinst_cc, "/bin/headers-install", "/src/tilck-tools/headers-install.c", 0);
+    av_hinst[0] = "/bin/headers-install";
+    av_hinst[1] = 0;
+    av_uapi_cc[0] = "/bin/tcc7b";
+    av_uapi_cc[1] = "-o";
+    av_uapi_cc[2] = "/bin/uapi-check";
+    av_uapi_cc[3] = "-I";
+    av_uapi_cc[4] = "/usr/include";
+    av_uapi_cc[5] = "-I";
+    av_uapi_cc[6] = "/include";
+    av_uapi_cc[7] = "-nostdlib";
+    av_uapi_cc[8] = "-static";
+    av_uapi_cc[9] = "-Wl,-Ttext=0x10000";
+    av_uapi_cc[10] = "-Wl,-oformat=elf64-little";
+    av_uapi_cc[11] = "/src/tcc7/compat-crt.s";
+    av_uapi_cc[12] = "/lib/libc.c";
+    av_uapi_cc[13] = "/src/tilck-tests/uapi-check.c";
+    av_uapi_cc[14] = 0;
+    av_uapi[0] = "/bin/uapi-check";
+    av_uapi[1] = 0;
+    t7_cc(av_gencfg_cc, "/bin/gen-tilck-config", "/src/tilck-tools/gen-tilck-config.c", 0);
+    av_gencfg[0] = "/bin/gen-tilck-config";
+    av_gencfg[1] = 0;
+    av_tobj[0] = "/bin/tcc7b";
+    av_tobj[1] = "@/src/tilck/cflags.rsp";
+    av_tobj[2] = "-I";
+    av_tobj[3] = tl_dir;
+    av_tobj[4] = "-c";
+    av_tobj[5] = tl_src;
+    av_tobj[6] = "-o";
+    av_tobj[7] = tl_obj;
+    av_tobj[8] = 0;
+    av_tlink[0] = "/bin/tcc7b";
+    av_tlink[1] = "@/src/tilck/link.rsp";
+    av_tlink[2] = 0;
+    av_sbi[0] = "/bin/tcc7b";
+    av_sbi[1] = "@/src/tilck/sbi/sbi.rsp";
+    av_sbi[2] = 0;
+    /* programs for Tilck's initrd: Linux ABI, Kronos libc + ecall */
+    t7_cc(av_tinit, "/build/tilck/init", "/src/tilck/init.c", 0);
+    t7_cc(av_tproc, "/build/tilck/proc", "/src/tilck-tests/proc.c", 0);
+    t7_cc(av_tchild, "/build/tilck/child", "/src/tilck-tests/child.c", 0);
+    /* musl: our tools are Kronos programs */
+    t7_cc(av_mgen_cc, "/bin/musl-gen", "/src/musl-tools/musl-gen.c", 0);
+    av_mgen[0] = "/bin/musl-gen";
+    av_mgen[1] = "/src/musl";
+    av_mgen[2] = "/build/musl";
+    av_mgen[3] = 0;
+    /* @file before -ar: mob expands listfiles only up to "-ar" */
+    av_mar[0] = "/bin/tcc7b";
+    av_mar[1] = "@/src/musl/ar.rsp";
+    av_mar[2] = 0;
+    musl_crt(av_mcrt1, "/src/musl/crt/crt1.c", "/build/musl/lib/crt1.o");
+    musl_crt(av_mcrti, "/src/musl/crt/crti.c", "/build/musl/lib/crti.o");
+    musl_crt(av_mcrtn, "/src/musl/crt/crtn.c", "/build/musl/lib/crtn.o");
+    musl_cc(av_mhello, "/build/musl/hello-musl", "/src/musl-tests/hello-musl.c");
+    musl_cc(av_mproc, "/build/musl/musl-proc", "/src/musl-tests/musl-proc.c");
+    /* stage 12's memory test is a musl program too */
+    musl_cc(av_mmem, "/build/tilck/mem", "/src/tilck-tests/mem.c");
+    musl_cc(av_mhard, "/build/tilck/hard", "/src/tilck-tests/hard.c");
+    t7_cc(av_mtar_cc, "/bin/mkustar", "/src/musl-tools/mkustar.c", 0);
+    /* -e: modes by content, Kronos's stat() says 0777 for every file */
+    av_mtar[0] = "/bin/mkustar";
+    av_mtar[1] = "-e";
+    av_mtar[2] = "/build/musl/musl-sysroot.tar";
+    av_mtar[3] = "/build/musl";
+    av_mtar[4] = "/build/musl/SYSROOT";
+    av_mtar[5] = 0;
+    /* stage 14: listfiles from kronos.py; seed-tree is a Kronos program */
+    av_sar[0] = "/bin/tcc7b";
+    av_sar[1] = "@/src/seed/ar.rsp";
+    av_sar[2] = 0;
+    av_sprog[0] = "/bin/tcc7b";
+    av_sprog[1] = sp_rsp;
+    av_sprog[2] = 0;
+    t7_cc(av_stree_cc, "/bin/seed-tree", "/src/seed-tools/seed-tree.c", 0);
+    av_stree[0] = "/bin/seed-tree";
+    av_stree[1] = "/build/seed/LIST";
+    av_stree[2] = "/build/seed";
+    av_stree[3] = "/build/musl";
+    av_stree[4] = "usr";
+    av_stree[5] = "/build/musl/SYSROOT";
+    av_stree[6] = "/lib/tcc7";
+    av_stree[7] = "usr/lib/tcc";
+    av_stree[8] = "/src/seed/TCCINC";
+    av_stree[9] = "-";
+    av_stree[10] = "usr";
+    av_stree[11] = "/src/seed/BUILT";
+    av_stree[12] = 0;
+    av_star[0] = "/bin/mkustar";
+    av_star[1] = "-e";
+    av_star[2] = "/build/seed/seed-rootfs.tar";
+    av_star[3] = "/build/seed";
+    av_star[4] = "/build/seed/LIST";
+    av_star[5] = 0;
 }
 
 void kmain(void)
@@ -645,8 +898,6 @@ void kmain(void)
         run(av_tcc6[0], av_tcc6);
         uart_puts("tcc6 built\n");
         run(av_ver6[0], av_ver6);
-        run(av_cmp56[0], av_cmp56);
-        uart_puts("tcc56 ok\n");
         if (kfs_get("/src/hello/hello.c", &len)) {
             uart_puts("hello6 start\n");
             run(av_hello6[0], av_hello6);
@@ -655,199 +906,114 @@ void kmain(void)
             snap_file("/bin/hello6", "hello6");
             run(av_runhello[0], av_runhello);
         }
-        if (kfs_get("/src/gcc/version.c", &len)) {
-            uart_puts("gccver start\n");
-            run(av_gccver[0], av_gccver);
-            uart_puts("gccver built\n");
-            snap_file("/bin/gccver", "gccver");
-            run(av_rungccver[0], av_rungccver);
+        /* tcc5 (built by pre-zext tcc4) and tcc6 now differ by design.
+           tcc4 has no float literals, so the float constants tcc5 puts
+           in tcc6 (the -0.0 of a negation) differ from tcc6b's; the
+           fixed point is tcc6b rebuilding itself. */
+        if (kfs_get("/src/hello/mob-zext.c", &len)) {
+            run(av_zext6[0], av_zext6);
+            run(av_runzext6[0], av_runzext6);
         }
-        if (kfs_get("/src/gcc/xstrdup.rsp", &len)) {
-            uart_puts("xstrdup start\n");
-            run(av_xstrdup[0], av_xstrdup);
-            uart_puts("xstrdup built\n");
-            snap_file("/bin/xstrdup", "xstrdup");
-            run(av_runxstrdup[0], av_runxstrdup);
-        }
-        if (kfs_get("/src/gcc/gengenrtl.c", &len)) {
-            uart_puts("gengenrtl start\n");
-            run(av_gengen[0], av_gengen);
-            if (kfs_get("/bin/gengenrtl", &len)) {
-                uart_puts("gengenrtl built\n");
-                snap_file("/bin/gengenrtl", "gengenrtl");
-                run(av_rungenh[0], av_rungenh);
+        if (kfs_get("/src/t7/floatlit.c", &len))
+            t7_test("floatlit6", av_fl6, av_runfl6);
+        run(av_tcc6b[0], av_tcc6b);
+        run(av_tcc6c[0], av_tcc6c);
+        run(av_cmp66[0], av_cmp66);
+        if (proc_last_exit() == 0)
+            uart_puts("tcc66 ok\n");
+        if (kfs_get("/src/tcc7/tcc.c", &len)) {
+            run(av_tcc7[0], av_tcc7);
+            if (!kfs_get("/bin/tcc7", &len)) {
+                uart_puts("tcc7 fail\n");
+                for (;;)
+                    ;
             }
-        }
-        if (kfs_get("/src/gcc/gmhdr.rsp", &len)) {
-            uart_puts("gmhdr start\n");
-            run(av_gmhdr[0], av_gmhdr);
-            if (kfs_get("/bin/gmhdr", &len)) {
-                uart_puts("gmhdr built\n");
-                run(av_rungmhdr[0], av_rungmhdr);
+            uart_puts("tcc7 built\n");
+            run(av_tcc7b[0], av_tcc7b);
+            if (!kfs_get("/bin/tcc7b", &len)) {
+                uart_puts("tcc7b fail\n");
+                for (;;)
+                    ;
             }
-        }
-        if (kfs_get("/src/gcc/genmodes.rsp", &len)) {
-            uart_puts("genmodes start\n");
-            run(av_genmodes[0], av_genmodes);
-            if (kfs_get("/bin/genmodes", &len)) {
-                unsigned char *p;
-                uart_puts("genmodes built\n");
-                snap_file("/bin/genmodes", "genmodes");
-                run(av_rungenm[0], av_rungenm);
-                p = kfs_get("/src/gcc/insn-modes.h", &len);
-                if (p && blob_has(p, len, "VOIDmode")
-                    && blob_has(p, len, "MAX_MACHINE_MODE")) {
-                    uart_puts("insn-modes VOIDmode\n");
-                    snap_file("/src/gcc/insn-modes.h", "modes");
+            uart_puts("tcc7b built\n");
+            run(av_tcc7c[0], av_tcc7c);
+            if (!kfs_get("/bin/tcc7c", &len)) {
+                uart_puts("tcc7c fail\n");
+                for (;;)
+                    ;
+            }
+            uart_puts("tcc7c built\n");
+            run(av_cmp77[0], av_cmp77);
+            if (proc_last_exit() == 0)
+                uart_puts("tcc77 ok\n");
+            snap_file("/bin/tcc7b", "tcc7b");
+            run(av_hello7[0], av_hello7);
+            run(av_runhello7[0], av_runhello7);
+            t7_test("floatlit", av_t7cc_floatlit, av_t7run_floatlit);
+            t7_test("kconst", av_t7cc_kconst, av_t7run_kconst);
+            t7_test("priv", av_t7cc_priv, av_t7run_priv);
+            t7_test("macro", av_t7cc_macro, av_t7run_macro);
+            t7_test("penum", av_t7cc_penum, av_t7run_penum);
+            t7_test("predefs", av_t7cc_predefs, av_t7run_predefs);
+            t7_test("gasdir", av_t7cc_gasdir, av_t7run_gasdir);
+            t7_test("bssym", av_t7cc_bssym, av_t7run_bssym);
+            t7_test("atomicn", av_t7cc_atomicn, av_t7run_atomicn);
+            t7_test("nopic", av_t7cc_nopic, av_t7run_nopic);
+            snap_file("/bin/t7-nopic", "nopic");
+            t7_test("branch", av_t7cc_branch, av_t7run_branch);
+            t7_test("cstore", av_t7cc_cstore, av_t7run_cstore);
+            t7_test("luiext", av_t7cc_luiext, av_t7run_luiext);
+            t7_test("epilog", av_t7cc_epilog, av_t7run_epilog);
+            run(av_arl_cc[0], av_arl_cc);
+            run(av_arl_ar[0], av_arl_ar);
+            t7_test("arlink", av_t7cc_arlink, av_t7run_arlink);
+            uart_puts("t7 done\n");
+            /* Tilck: uapi headers, config headers, objects, link */
+            if (kfs_get("/src/tilck/SOURCES", &len)) {
+                run(av_hinst_cc[0], av_hinst_cc);
+                if (kfs_get("/bin/headers-install", &len)) {
+                    uart_puts("headers-install built\n");
+                    run(av_hinst[0], av_hinst);
                 }
-                run(av_rungenmc[0], av_rungenmc);
-                p = kfs_get("/src/gcc/insn-modes.c", &len);
-                if (p && len > 64)
-                    uart_puts("insn-modes.c ok\n");
-                run(av_rungenh2[0], av_rungenh2);
-                p = kfs_get("/src/gcc/genrtl.h", &len);
-                if (p && blob_has(p, len, "GCC_GENRTL_H"))
-                    uart_puts("genrtl.h ok\n");
-                run(av_rungenmin[0], av_rungenmin);
-                p = kfs_get("/src/gcc/min-insn-modes.c", &len);
-                if (p && blob_has(p, len, "mode_name"))
-                    uart_puts("min-insn-modes ok\n");
-                if (kfs_get("/src/gcc/genflags.rsp", &len)) {
-                    uart_puts("genflags start\n");
-                    run(av_genflags[0], av_genflags);
-                    if (kfs_get("/bin/genflags", &len)) {
-                        uart_puts("genflags built\n");
-                        snap_file("/bin/genflags", "genflags");
-                        run(av_rungenf[0], av_rungenf);
-                        p = kfs_get("/src/gcc/insn-flags.h", &len);
-                        if (p && blob_has(p, len, "HAVE_nop")) {
-                            uart_puts("insn-flags HAVE_nop\n");
-                            if (blob_has(p, len, "gen_nop"))
-                                uart_puts("insn-flags gen_nop\n");
-                            if (blob_has(p, len, "HAVE_beq"))
-                                uart_puts("insn-flags HAVE_beq\n");
-                            if (blob_has(p, len, "gen_beq"))
-                                uart_puts("insn-flags gen_beq\n");
-                            snap_file("/src/gcc/insn-flags.h", "iflags");
-                            md_gen(av_gencodes, "gencodes start", "/bin/gencodes",
-                                   "gencodes built", "gencodes", av_rungenc,
-                                   "/src/gcc/insn-codes.h",
-                                   "insn-codes CODE_FOR_nop", "CODE_FOR_nop");
-                            md_gen(av_genconfig, "genconfig start", "/bin/genconfig",
-                                   "genconfig built", "genconfig", av_rungencfg,
-                                   "/src/gcc/insn-config.h",
-                                   "insn-config MAX_RECOG_OPERANDS",
-                                   "MAX_RECOG_OPERANDS");
-                            md_gen(av_genconst, "genconstants start", "/bin/genconstants",
-                                   "genconstants built", "genconst", av_runconst,
-                                   "/src/gcc/insn-constants.h",
-                                   "insn-constants ok", "GCC_INSN_CONSTANTS_H");
-                            md_gen(av_genemit, "genemit start", "/bin/genemit",
-                                   "genemit built", "genemit", av_runemit,
-                                   "/src/gcc/insn-emit.c",
-                                   "insn-emit gen_nop", "gen_nop");
-                            md_gen(av_genrecog, "genrecog start", "/bin/genrecog",
-                                   "genrecog built", "genrecog", av_runrecog,
-                                   "/src/gcc/insn-recog.c",
-                                   "insn-recog split_insns", "split_insns");
-                            md_gen(av_genextract, "genextract start", "/bin/genextract",
-                                   "genextract built", "genextract", av_runextract,
-                                   "/src/gcc/insn-extract.c",
-                                   "insn-extract insn_extract", "insn_extract");
-                            md_gen(av_genoutput, "genoutput start", "/bin/genoutput",
-                                   "genoutput built", "genoutput", av_runoutput,
-                                   "/src/gcc/insn-output.c",
-                                   "insn-output insn_data", "insn_data");
-                            md_gen(av_genopinit, "genopinit start", "/bin/genopinit",
-                                   "genopinit built", "genopinit", av_runopinit,
-                                   "/src/gcc/insn-opinit.c",
-                                   "insn-opinit init_all_optabs", "init_all_optabs");
-                            md_gen(av_genpeep, "genpeep start", "/bin/genpeep",
-                                   "genpeep built", "genpeep", av_runpeep,
-                                   "/src/gcc/insn-peep.c",
-                                   "insn-peep peephole", "peephole");
-                            md_gen(av_genattr, "genattr start", "/bin/genattr",
-                                   "genattr built", "genattr", av_runattr,
-                                   "/src/gcc/insn-attr.h",
-                                   "insn-attr GCC_INSN_ATTR_H", "GCC_INSN_ATTR_H");
-                            md_gen(av_genpreds, "genpreds start", "/bin/genpreds",
-                                   "genpreds built", "genpreds", av_runpredsh,
-                                   "/src/gcc/tm-preds.h",
-                                   "tm-preds GCC_TM_PREDS_H", "GCC_TM_PREDS_H");
-                            run(av_runpredsc[0], av_runpredsc);
-                            p = kfs_get("/src/gcc/insn-preds.c", &len);
-                            if (p && blob_has(p, len, "hard-reg-set.h"))
-                                uart_puts("insn-preds ok\n");
-                            md_gen(av_gencheck, "gencheck start", "/bin/gencheck",
-                                   "gencheck built", "gencheck", av_runcheck,
-                                   "/src/gcc/tree-check.h",
-                                   "tree-check GCC_TREE_CHECK_H", "GCC_TREE_CHECK_H");
-                            md_gen(av_genattrtab, "genattrtab start", "/bin/genattrtab",
-                                   "genattrtab built", "genattrtab", av_runattrtab,
-                                   "/src/gcc/insn-attrtab.c",
-                                   "insn-attrtab genattrtab", "genattrtab");
-                            run(av_rungencrtl[0], av_rungencrtl);
-                            p = kfs_get("/src/gcc/genrtl.c", &len);
-                            if (p && blob_has(p, len, "gen_rtx_"))
-                                uart_puts("genrtl.c ok\n");
-                            if (kfs_get("/src/gcc/gengtype.rsp", &len)) {
-                                uart_puts("gengtype start\n");
-                                run(av_gengtype[0], av_gengtype);
-                                if (kfs_get("/bin/gengtype", &len)) {
-                                    uart_puts("gengtype built\n");
-                                    snap_file("/bin/gengtype", "gengtype");
-                                    proc_set_cwd("/src/gcc");
-                                    run(av_rungty[0], av_rungty);
-                                    proc_set_cwd("/");
-                                    p = kfs_get("/src/gcc/gtype-desc.c", &len);
-                                    if (p && len > 200)
-                                        uart_puts("gtype-desc ok\n");
-                                }
-                            }
-                            if (kfs_get("/src/gcc/cc1.rsp", &len)
-                                && kfs_get("/src/gcc/gtype-desc.c", &len)) {
-                                uart_puts("cc1 start\n");
-                                run(av_cc1[0], av_cc1);
-                                if (kfs_get("/bin/cc1", &len)) {
-                                    uart_puts("cc1 built\n");
-                                    snap_file("/bin/cc1", "cc1");
-                                    uart_puts("cc1 hello start\n");
-                                    run(av_runc1[0], av_runc1);
-                                    p = kfs_get("/src/hello/hello-gcc.s", &len);
-                                    if (p && len > 8) {
-                                        uart_puts("hello.s ok\n");
-                                        uart_puts("hello-gcc start\n");
-                                        run(av_hellogcc[0], av_hellogcc);
-                                        if (kfs_get("/bin/hello-gcc", &len)) {
-                                            uart_puts("hello-gcc built\n");
-                                            snap_file("/bin/hello-gcc", "hello-gcc");
-                                            run(av_runhelg[0], av_runhelg);
-                                            uart_puts("cc1-2 start\n");
-                                            if (self_compile_all()) {
-                                                uart_puts("cc1-2 compiled\n");
-                                                run(av_cc12[0], av_cc12);
-                                                if (kfs_get("/bin/cc1-2", &len)) {
-                                                    uart_puts("cc1-2 built\n");
-                                                    snap_file("/bin/cc1-2", "cc1-2");
-                                                    run(av_runc12[0], av_runc12);
-                                                    p = kfs_get("/src/hello/hello-self.s", &len);
-                                                    if (p && len > 8) {
-                                                        run(av_helloself[0], av_helloself);
-                                                        if (kfs_get("/bin/hello-self", &len)) {
-                                                            uart_puts("hello-self built\n");
-                                                            snap_file("/bin/hello-self", "hello-self");
-                                                            run(av_runhs[0], av_runhs);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                t7_test("uapi-check", av_uapi_cc, av_uapi);
+                t7_test("gen-tilck-config", av_gencfg_cc, av_gencfg);
+                if (build_objs("/src/tilck/SOURCES", "@/src/tilck/cflags.rsp",
+                               "/src/tilck/", "/build/tilck/obj/", "tilck")) {
+                    run(av_tlink[0], av_tlink);
+                    if (kfs_get("/build/tilck/tilck.elf", &len)) {
+                        uart_puts("tilck linked\n");
+                        snap_file("/build/tilck/tilck.elf", "tilck");
+                    } else
+                        uart_puts("tilck link fail\n");
                 }
+                /* M-mode SBI shim, raw image at 0x80000000 */
+                run(av_sbi[0], av_sbi);
+                if (kfs_get("/build/tilck/sbi.bin", &len)) {
+                    uart_puts("sbi built\n");
+                    snap_file("/build/tilck/sbi.bin", "sbi");
+                } else
+                    uart_puts("sbi build fail\n");
+                run(av_tinit[0], av_tinit);
+                run(av_tproc[0], av_tproc);
+                run(av_tchild[0], av_tchild);
+                if (kfs_get("/build/tilck/init", &len)
+                    && kfs_get("/build/tilck/proc", &len)
+                    && kfs_get("/build/tilck/child", &len)) {
+                    uart_puts("tilck progs built\n");
+                    snap_file("/build/tilck/init", "tinit");
+                    snap_file("/build/tilck/proc", "tproc");
+                    snap_file("/build/tilck/child", "tchild");
+                } else
+                    uart_puts("tilck progs fail\n");
+                uart_puts("tilck done\n");
+            }
+            if (kfs_get("/src/musl/SOURCES", &len)) {
+                build_musl();
+                uart_puts("musl done\n");
+            }
+            if (kfs_get("/src/seed/SEED", &len)) {
+                build_seed();
+                uart_puts("seed done\n");
             }
         }
     }

@@ -1,0 +1,18 @@
+Aegis-V (15-early-tools README): install calls chown (path, -1, -1) when
+neither -o nor -g is given. Linux takes -1 as "no change"; Tilck's
+vfs_chown() accepts only owner 0 and group 0 and returns EPERM, so every
+install would fail. Skip chown when there is nothing to change, as
+lib/makepath.c already does (and as later coreutils' install does).
+
+--- coreutils-5.0/src/install.c
++++ coreutils-5.0/src/install.c
+@@ -462,7 +462,8 @@
+      want to know.  But AFS returns EPERM when you try to change a
+      file's group; thus the kludge.  */
+ 
+-  if (chown (path, owner_id, group_id)
++  if ((owner_id != (uid_t) -1 || group_id != (gid_t) -1)
++      && chown (path, owner_id, group_id)
+ #ifdef AFS
+       && errno != EPERM
+ #endif

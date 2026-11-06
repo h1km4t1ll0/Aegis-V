@@ -35,7 +35,15 @@ STAGE_DIR = {
     "08": "08-pnut",
     "09": "09-kronos",
     "10": "10-tcc",
-    "12": "12-gcc404",
+    "11": "11-tcc7",
+    "12": "12-tilck",
+    "13": "13-musl",
+    "14": "14-seed",
+    "15": "15-early-tools",
+    "16": "16-buildtools",
+    "17": "17-binutils",
+    "18": "18-gmp-mpfr-mpc",
+    "19": "19-gcc464",
 }
 
 ARTIFACT_STEM = {

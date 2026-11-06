@@ -1,0 +1,15 @@
+Aegis-V: musl declares void *alloca (size_t) (stdlib.h -> alloca.h, _GNU_SOURCE);
+awk.h declared it with unsigned for -DC_ALLOCA: tcc "incompatible types for
+redefinition of alloca".
+
+--- gawk-3.0.4/awk.h
++++ gawk-3.0.4/awk.h
+@@ -885,7 +885,7 @@
+ /* The __hpux check is to avoid conflicts with bison's definition of
+    alloca() in awktab.c.*/
+ #if (defined(__STDC__) && __STDC__) || defined (__hpux)
+-extern void *alloca P((unsigned));
++extern void *alloca P((size_t));
+ #else
+ extern char *alloca P((unsigned));
+ #endif

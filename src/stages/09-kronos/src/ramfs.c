@@ -260,12 +260,14 @@ int ramfs_open(const char *path, int flags)
     creat = flags & O_CREAT;
     trunc = flags & O_TRUNC;
     e = extra_find(np);
-    if (e && e->isdir)
+    if (e && e->isdir) {
         return -EINVAL;
+    }
     data = kfs_get(np, &sz);
     if (!data) {
-        if (!creat)
+        if (!creat) {
             return -ENOENT;
+        }
         e = extra_create(np, 0);
         if (!e)
             return -ENOMEM;
@@ -285,8 +287,9 @@ int ramfs_open(const char *path, int flags)
         }
     }
     fd = alloc_fd();
-    if (fd < 0)
+    if (fd < 0) {
         return -ENOMEM;
+    }
     fds[fd].data = (unsigned char *)data;
     fds[fd].size = sz;
     fds[fd].cap = e ? e->cap : sz;

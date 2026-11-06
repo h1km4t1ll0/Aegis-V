@@ -1,0 +1,121 @@
+# Rung tools1 on Tilck (15-early-tools README). rung-init runs this with
+# kaem --verbose --strict from / ; /initrd is read-only.
+# live-bootstrap's recipes run from /steps/<pkg> with pkg set (as its
+# script-generator writes them: pkg=NAME, cd ${pkg}, kaem --file pass1.kaem,
+# cd ..), so the recipe files are copied there first.
+
+# 1. /steps/<pkg>/ from /initrd/steps/<pkg>/
+# (one file per cp: with several sources, mescc-tools-extra's cp appends each
+# basename to the same destination string and fails on the second one)
+mkdir -p /steps/make-3.82/files
+cp /initrd/steps/make-3.82/pass1.kaem /steps/make-3.82/pass1.kaem
+cp /initrd/steps/make-3.82/sources /steps/make-3.82/sources
+cp /initrd/steps/make-3.82/files/config.h /steps/make-3.82/files/config.h
+mkdir -p /steps/patch-2.5.9/mk
+cp /initrd/steps/patch-2.5.9/pass1.kaem /steps/patch-2.5.9/pass1.kaem
+cp /initrd/steps/patch-2.5.9/sources /steps/patch-2.5.9/sources
+cp /initrd/steps/patch-2.5.9/mk/main.mk /steps/patch-2.5.9/mk/main.mk
+mkdir -p /steps/gzip-1.2.4/mk /steps/gzip-1.2.4/files /steps/gzip-1.2.4/patches
+cp /initrd/steps/gzip-1.2.4/pass1.kaem /steps/gzip-1.2.4/pass1.kaem
+cp /initrd/steps/gzip-1.2.4/sources /steps/gzip-1.2.4/sources
+cp /initrd/steps/gzip-1.2.4/mk/main.mk /steps/gzip-1.2.4/mk/main.mk
+cp /initrd/steps/gzip-1.2.4/files/stat_override.c /steps/gzip-1.2.4/files/stat_override.c
+cp /initrd/steps/gzip-1.2.4/patches/removecrc.patch /steps/gzip-1.2.4/patches/removecrc.patch
+cp /initrd/steps/gzip-1.2.4/patches/makecrc-write-to-file.patch /steps/gzip-1.2.4/patches/makecrc-write-to-file.patch
+mkdir -p /steps/tar-1.12/mk /steps/tar-1.12/files /steps/tar-1.12/patches
+cp /initrd/steps/tar-1.12/pass1.kaem /steps/tar-1.12/pass1.kaem
+cp /initrd/steps/tar-1.12/sources /steps/tar-1.12/sources
+cp /initrd/steps/tar-1.12/mk/main.mk /steps/tar-1.12/mk/main.mk
+cp /initrd/steps/tar-1.12/files/getdate_stub.c /steps/tar-1.12/files/getdate_stub.c
+cp /initrd/steps/tar-1.12/files/stat_override.c /steps/tar-1.12/files/stat_override.c
+cp /initrd/steps/tar-1.12/patches/no-same-owner.patch /steps/tar-1.12/patches/no-same-owner.patch
+mkdir -p /steps/sed-4.0.9/mk
+cp /initrd/steps/sed-4.0.9/pass1.kaem /steps/sed-4.0.9/pass1.kaem
+cp /initrd/steps/sed-4.0.9/sources /steps/sed-4.0.9/sources
+cp /initrd/steps/sed-4.0.9/mk/main.mk /steps/sed-4.0.9/mk/main.mk
+mkdir -p /steps/bzip2-1.0.8/patches
+cp /initrd/steps/bzip2-1.0.8/pass1.kaem /steps/bzip2-1.0.8/pass1.kaem
+cp /initrd/steps/bzip2-1.0.8/sources /steps/bzip2-1.0.8/sources
+cp /initrd/steps/bzip2-1.0.8/patches/coreutils.patch /steps/bzip2-1.0.8/patches/coreutils.patch
+
+# The distfiles go to ramfs: on Tilck's FAT32 initrd, lseek(fd, 0, SEEK_END)
+# returns the current offset (fat_seek() handles SEEK_END only for a negative
+# offset), so sha256sum, which takes the size with fseek/ftell, hashes
+# /initrd/distfiles/* as empty files.
+mkdir -p /distfiles
+cp /initrd/distfiles/make-3.82.tar.bz2 /distfiles/make-3.82.tar.bz2
+cp /initrd/distfiles/patch-2.5.9.tar.gz /distfiles/patch-2.5.9.tar.gz
+cp /initrd/distfiles/gzip-1.2.4.tar.gz /distfiles/gzip-1.2.4.tar.gz
+cp /initrd/distfiles/tar-1.12.tar.gz /distfiles/tar-1.12.tar.gz
+cp /initrd/distfiles/sed-4.0.9.tar.gz /distfiles/sed-4.0.9.tar.gz
+cp /initrd/distfiles/bzip2-1.0.8.tar.gz /distfiles/bzip2-1.0.8.tar.gz
+DISTFILES=/distfiles
+
+# 2. the packages, in live-bootstrap's order (steps/manifest)
+cd /steps
+pkg=make-3.82
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=patch-2.5.9
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=gzip-1.2.4
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=tar-1.12
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=sed-4.0.9
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=bzip2-1.0.8
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+
+# 3. tests: versions
+make --version
+patch --version
+gzip --version
+tar --version
+sed --version
+bzip2 --help
+
+# tar + gzip there and back; no cmp yet: sha256sum -o, then -c on the copy
+mkdir -p /build/tg/d /build/tg2
+cp /usr/include/elf.h /build/tg/d/elf.h
+cp /usr/bin/make /build/tg/d/make
+cp /initrd/steps/run.kaem /build/tg/d/run.kaem
+cd /build/tg
+sha256sum -o /build/tg-files.sum d/elf.h d/make d/run.kaem
+tar cf d.tar d
+sha256sum -o /build/tg-tar.sum d.tar
+gzip d.tar
+cp d.tar.gz /build/tg2/d.tar.gz
+cd /build/tg2
+gunzip d.tar.gz
+sha256sum -c /build/tg-tar.sum
+tar xf d.tar
+sha256sum -c /build/tg-files.sum
+echo tar gzip ok
+
+# make: test.mk builds hello with a pattern rule and runs it ("make ok")
+mkdir -p /build/mk
+cp /initrd/steps/tests/test.mk /build/mk/test.mk
+cp /initrd/steps/tests/hello.c /build/mk/hello.c
+cd /build/mk
+make -f test.mk
+
+# 4. /usr packed with mkustar into /dev/outbox (as rung tcc)
+cd /
+filelist /build/usr.list usr
+mkustar /build/rootfs.tar . /build/usr.list
+cp /build/rootfs.tar /dev/outbox
+sha256sum -o /build/rootfs.sum /build/rootfs.tar
+catm /dev/console /initrd/steps/sha256-prefix /build/rootfs.sum
+echo rung done tools1

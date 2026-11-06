@@ -1,0 +1,16 @@
+Aegis-V (15-early-tools README): musl's stdio.h declares
+ssize_t getline() and getdelim(); lib/getline.h redeclares them returning int
+whenever __GLIBC__ < 2 (tcc: "incompatible types for redefinition"). musl's
+own are used (lib/getline.c is out of LIB_SRC in mk/main.mk).
+
+--- coreutils-5.0/lib/getline.h
++++ coreutils-5.0/lib/getline.h
+@@ -27,7 +27,7 @@
+ #  endif
+ # endif
+ 
+-# if __GLIBC__ < 2
++# if 0
+ int
+ getline PARAMS ((char **_lineptr, size_t *_n, FILE *_stream));
+ 

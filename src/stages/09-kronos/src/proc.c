@@ -96,6 +96,29 @@ void run(char *path, char **argv)
     unsigned long len;
     void *blob;
     unsigned long entry;
+    const char *p;
+    const char *q;
+    int same;
+
+    /* After skip-tcc rebuild, /bin/tcc6n has ET_REL -c; keep /bin/tcc6
+     * as the compiler for that rebuild itself (tcc6n not yet present). */
+    if (argv && argv[0] && path) {
+        p = path;
+        q = "/bin/tcc6";
+        same = 1;
+        while (*q) {
+            if (*p != *q) {
+                same = 0;
+                break;
+            }
+            p = p + 1;
+            q = q + 1;
+        }
+        if (same && *p == 0 && kfs_get("/bin/tcc6n", &len)) {
+            path = "/bin/tcc6n";
+            argv[0] = "/bin/tcc6n";
+        }
+    }
     blob = kfs_get(path, &len);
     if (!blob) {
         uart_puts("kfs miss ");

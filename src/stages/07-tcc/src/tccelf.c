@@ -2050,6 +2050,69 @@ static void elf_write_loadable(TCCState *s1, FILE *f, unsigned long shoff)
     elf_wr64(f, 4096);
 }
 
+/* Relocatable (-c): byte-wise ET_REL + SHDR. fwrite(Elf64_Ehdr) is
+ * unsafe under pnut struct layout; tcc_load_object_file needs SHDRs. */
+static void elf_write_ehdr_rel(FILE *f, unsigned long shoff, int shnum)
+{
+    int i;
+
+    fputc(0x7f, f);
+    fputc('E', f);
+    fputc('L', f);
+    fputc('F', f);
+    fputc(2, f);
+    fputc(1, f);
+    fputc(1, f);
+    i = 0;
+    while (i < 9) {
+        fputc(0, f);
+        i = i + 1;
+    }
+    elf_wr16(f, 1);
+    elf_wr16(f, 243);
+    elf_wr32(f, 1);
+    elf_wr64(f, 0);
+    elf_wr64(f, 0);
+    elf_wr64(f, shoff);
+    elf_wr32(f, 4);
+    elf_wr16(f, 64);
+    elf_wr16(f, 0);
+    elf_wr16(f, 0);
+    elf_wr16(f, 64);
+    elf_wr16(f, shnum);
+    elf_wr16(f, shnum - 1);
+}
+
+static void elf_write_shdr(FILE *f, Section *s)
+{
+    unsigned long link;
+
+    if (!s) {
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        elf_wr64(f, 0);
+        return;
+    }
+    link = 0;
+    if (s->link)
+        link = (unsigned long)s->link->sh_num;
+    elf_wr32(f, (unsigned int)s->sh_name);
+    elf_wr32(f, (unsigned int)s->sh_type);
+    elf_wr64(f, (unsigned long)s->sh_flags);
+    elf_wr64(f, (unsigned long)s->sh_addr);
+    elf_wr64(f, s->sh_offset);
+    elf_wr64(f, s->sh_size);
+    elf_wr32(f, (unsigned int)link);
+    elf_wr32(f, (unsigned int)s->sh_info);
+    elf_wr64(f, (unsigned long)s->sh_addralign);
+    elf_wr64(f, (unsigned long)s->sh_entsize);
+}
+
 /* Create an ELF file on disk.
    This function handle ELF specific layout requirements */
 static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
@@ -2123,8 +2186,13 @@ static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
     ehdr.e_shnum = shnum;
     ehdr.e_shstrndx = shnum - 1;
 
-    elf_write_loadable(s1, f, (unsigned long)file_offset);
-    offset = 64 + 56;
+    if (file_type == TCC_OUTPUT_OBJ) {
+        elf_write_ehdr_rel(f, (unsigned long)file_offset, shnum);
+        offset = 64;
+    } else {
+        elf_write_loadable(s1, f, (unsigned long)file_offset);
+        offset = 64 + 56;
+    }
 
     sort_syms(s1, symtab_section);
     for(i = 1; i < s1->nb_sections; i++) {
@@ -2141,6 +2209,14 @@ static void tcc_output_elf(TCCState *s1, FILE *f, int phnum, ElfW(Phdr) *phdr,
         }
     }
 
+    if (file_type == TCC_OUTPUT_OBJ) {
+        while (offset < file_offset) {
+            fputc(0, f);
+            offset++;
+        }
+        for(i = 0; i < shnum; i++)
+            elf_write_shdr(f, s1->sections[i]);
+    }
     /* ET_EXEC is PHDR-only. Skip SHDR table (pnut struct layout). */
     (void)ehdr;
     (void)shdr;

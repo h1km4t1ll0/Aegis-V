@@ -1,0 +1,1023 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
+#include <tilck/common/basic_defs.h>
+#include <tilck/common/string_util.h>
+#include <tilck/common/utils.h>
+
+#include <tilck/kernel/process.h>
+#include <tilck/kernel/signal.h>
+#include <tilck/kernel/errno.h>
+#include <tilck/kernel/user.h>
+#include <tilck/kernel/syscalls.h>
+#include <tilck/kernel/sys_types.h>
+#include <tilck/kernel/hal.h>
+#include <tilck/kernel/interrupts.h>
+#include <tilck/kernel/process_int.h>
+
+#include <tilck/mods/tracing.h>
+
+typedef void (*action_type)(struct task *, int signum, int fl);
+
+static void __add_sig(ulong *set, int signum)
+{
+   int slot, index;
+
+   ASSERT(signum > 0);
+   signum--;
+
+   slot = signum / NBITS;
+   index = signum % NBITS;
+
+   if (slot >= K_SIGACTION_MASK_WORDS)
+      return; /* just silently ignore signals that we don't support */
+
+   set[slot] |= (1 << index);
+}
+
+static void add_pending_sig(struct task *ti, int signum, int fl)
+{
+   __add_sig(ti->sa_pending, signum);
+
+   if (fl & SIG_FL_FAULT)
+      __add_sig(ti->sa_fault_pending, signum);
+}
+
+static void __del_sig(ulong *set, int signum)
+{
+   int slot, index;
+
+   ASSERT(signum > 0);
+   signum--;
+
+   slot = signum / NBITS;
+   index = signum % NBITS;
+
+   if (slot >= K_SIGACTION_MASK_WORDS)
+      return; /* just silently ignore signals that we don't support */
+
+   set[slot] &= ~(1u << index);
+}
+
+static void del_pending_sig(struct task *ti, int signum)
+{
+   __del_sig(ti->sa_pending, signum);
+   __del_sig(ti->sa_fault_pending, signum);
+}
+
+static bool __is_sig_set(ulong *set, int signum)
+{
+   int slot, index;
+
+   ASSERT(signum > 0);
+   signum--;
+
+   slot = signum / NBITS;
+   index = signum % NBITS;
+
+   if (slot >= K_SIGACTION_MASK_WORDS)
+      return false; /* just silently ignore signals that we don't support */
+
+   return !!(set[slot] & (1 << index));
+}
+
+static bool is_pending_sig(struct task *ti, int signum)
+{
+   return __is_sig_set(ti->sa_pending, signum);
+}
+
+static bool is_sig_masked(struct task *ti, int signum)
+{
+   return __is_sig_set(ti->sa_mask, signum);
+}
+
+static int get_first_pending_sig(struct task *ti)
+{
+   for (u32 i = 0; i < K_SIGACTION_MASK_WORDS; i++) {
+
+      /* Aegis-V: the first pending signal that is not masked (was: the
+         first pending one of the word, skipped if masked) */
+      ulong val = ti->sa_pending[i] & ~ti->sa_mask[i];
+
+      if (val != 0) {
+
+         u32 idx = get_first_set_bit_index_l(val);
+         int signum = (int)(i * NBITS + idx + 1);
+
+         return signum;
+      }
+   }
+
+   return -1;
+}
+
+void drop_all_pending_signals(void *__curr)
+{
+   struct task *ti = __curr;
+
+   ASSERT(!is_preemption_enabled());
+
+   for (u32 i = 0; i < K_SIGACTION_MASK_WORDS; i++) {
+      ti->sa_pending[i] = 0;
+      ti->sa_fault_pending[i] = 0;
+   }
+}
+
+void reset_all_custom_signal_handlers(void *__curr)
+{
+   struct task *ti = __curr;
+   struct process *pi = ti->pi;
+
+   ASSERT(!is_preemption_enabled());
+
+   for (u32 i = 1; i < _NSIG; i++) {
+
+      if (pi->sa_handlers[i-1] != SIG_DFL && pi->sa_handlers[i-1] != SIG_IGN)
+         pi->sa_handlers[i-1] = SIG_DFL;
+   }
+}
+
+static void
+kill_task_now_or_later(struct task *ti, void *regs, int signum)
+{
+   if (ti == get_curr_task()) {
+
+      /* We can terminate the task immediately */
+      enable_preemption();
+      terminate_process(0, signum);
+      NOT_REACHED();
+
+   } else {
+
+      /* We have to setup a trampoline to any syscall */
+      setup_pause_trampoline(regs);
+   }
+}
+
+/*
+ * Try to deliver a pending signal to `ti`.
+ *
+ * Called from four code paths, identified by `sig_state`:
+ *
+ *   - sig_in_syscall: from do_syscall / do_special_syscall after the
+ *     syscall body has run (eax/a0 already holds the syscall return
+ *     value, which setup_sig_handler() will preserve in the saved
+ *     sigframe so sigreturn restores it correctly).
+ *
+ *   - sig_in_usermode: from arch_usermode_task_switch just before
+ *     resuming a user task that wasn't running in the kernel.
+ *
+ *   - sig_in_fault: from fault_entry on a fault that didn't originate
+ *     inside a syscall (so we deliver any HW-fault signal directly).
+ *
+ *   - sig_in_return: from sys_rt_sigreturn, to chain another pending
+ *     signal's handler instead of restoring user regs immediately.
+ *
+ * If a custom handler is installed, setup_sig_handler() saves the
+ * current `regs` to a sigframe on the user stack and rewrites `regs`
+ * to redirect user-mode resumption into the handler. Returns true.
+ * For default-action-terminate (or SIGKILL on the current task),
+ * kill_task_now_or_later() runs terminate_process() which is NORETURN.
+ *
+ * History note: an older sig_pre_syscall hook used to fire from the
+ * syscall dispatcher BEFORE the body ran, intending "signal arrived
+ * between userspace and kernel — return -EINTR before doing the work".
+ * It produced two distinct bugs (i386: body ran with the right args
+ * and the right side effect, but userspace saw -EINTR via sigreturn,
+ * causing silent duplicate operations when userspace retried; riscv64:
+ * setup_sig_handler() overwrote a0 with the signum so the body's
+ * fptr(a0=signum, ...) silently turned close(5) into close(SIGCHLD=17),
+ * and the intended close never happened — easy to reproduce as a hung
+ * pipe). Both shared the same root cause: a syscall body running with
+ * regs the signal-delivery code had already clobbered. The fix was to
+ * drop pre-syscall delivery entirely (matching Linux semantics): the
+ * body always runs to completion, then signals are delivered at
+ * sig_in_syscall with the real return value preserved.
+ */
+bool process_signals(void *__ti, enum sig_state sig_state, void *regs)
+{
+   int sig;
+   struct task *ti = __ti;
+
+   ASSERT(!is_preemption_enabled());
+   ASSERT(ti == get_curr_task() || sig_state == sig_in_usermode);
+
+   /* Unmask the pending signals caused by HW faults */
+   for (u32 i = 0; i < K_SIGACTION_MASK_WORDS; i++) {
+      ti->sa_mask[i] &= ~ti->sa_fault_pending[i];
+   }
+
+   if (is_pending_sig(ti, SIGKILL)) {
+
+      /*
+       * SIGKILL will always have absolute priority over anything else: no
+       * matter if there are other pending signals or we're already running
+       * a custom signal handler.
+       */
+
+      kill_task_now_or_later(ti, regs, SIGKILL);
+      return true;
+   }
+
+   if (ti->nested_sig_handlers > 0 && sig_state != sig_in_return) {
+      /*
+       * For the moment, in Tilck only signal handlers (even of different types)
+       * will not be able to interrupt each other. This is the equivalent of
+       * having each sigaction's sa_mask = 0xffffffff[...].
+       *
+       * Aegis-V: but a signal that kills needs no handler: an unmasked
+       * pending signal with the default action (terminate), or one from a
+       * fault, kills the task here too. Before, abort() inside a handler
+       * (gawk's SIGSEGV handler) left SIGABRT pending, and musl's final
+       * a_crash() faulted again and again (Linux kills on a fault in the
+       * handler of the same signal).
+       */
+      sig = get_first_pending_sig(ti);
+
+      if (sig > 0 && (!ti->pi->sa_handlers[sig - 1] ||
+                      __is_sig_set(ti->sa_fault_pending, sig)))
+      {
+         kill_task_now_or_later(ti, regs, sig);
+         return true;
+      }
+
+      return false;
+   }
+
+   sig = get_first_pending_sig(ti);
+
+   if (sig < 0)
+      return false;
+
+   trace_signal_delivered(ti->tid, sig);
+   const __sighandler_t handler = ti->pi->sa_handlers[sig - 1];
+
+   if (handler) {
+
+      trace_printk(10, "Setup signal handler %p for TID %d for signal %s[%d]",
+                   handler, ti->tid, get_signal_name(sig), sig);
+
+      del_pending_sig(ti, sig);
+
+      if (setup_sig_handler(ti, regs, (ulong)handler, sig) < 0) {
+
+         /* We got a FAULT while trying to setup the user stack */
+         printk("WARNING: can't setup stack for task %d: kill\n", ti->tid);
+         kill_task_now_or_later(ti, regs, SIGKILL);
+      }
+
+   } else {
+
+      /*
+       * If we got here, there is no registered custom handler for the signal,
+       * the signal has not been ignored explicitly and the default action for
+       * the signal is terminate.
+       */
+
+      kill_task_now_or_later(ti, regs, sig);
+   }
+
+   return true;
+}
+
+static void signal_wakeup_task(struct task *ti)
+{
+   if (ti->vfork_stopped) {
+
+      /*
+       * The task is vfork_stopped: we cannot make it runnable, nor kill it
+       * right now. Just registering the signal as pending is enough. As soon
+       * as the process wakes up, the killing signal will be delivered.
+       * Supporting the killing a of vforked process (while its child is still
+       * alive and has not called execve()) is just too tricky.
+       *
+       * TODO: consider supporting killing of vforked process.
+       */
+      return;
+   }
+
+   /*
+    * A killing signal overrides any stop-pending state: clear the
+    * flag (set by action_stop on a SLEEPING task) so the wake path
+    * below transitions to RUNNABLE — not STOPPED — and the task
+    * actually runs and dies.
+    */
+   ti->stop_pending = false;
+
+   if (atomic_load(&ti->state) == TASK_STATE_SLEEPING) {
+
+      /*
+       * We must NOT wake up tasks waiting on a mutex or on a semaphore:
+       * supporting spurious wake-ups there, is just a waste of resources.
+       * On the contrary, if a task is waiting on a condition or sleeping
+       * in kernel_sleep(), we HAVE to wake it up.
+       */
+
+      if (ti->wobj.type != WOBJ_KMUTEX && ti->wobj.type != WOBJ_SEM)
+         wake_up(ti);
+
+   } else if (atomic_load(&ti->state) == TASK_STATE_STOPPED) {
+
+      /*
+       * The task was explicitly stopped (SIGSTOP-class signal) and
+       * is therefore outside the runnable tree. A killing
+       * signal needs the task to actually run to handle the death,
+       * so transition it back to RUNNABLE here.
+       */
+      task_change_state(ti, TASK_STATE_RUNNABLE);
+   }
+}
+
+static void action_terminate(struct task *ti, int signum, int fl)
+{
+   ASSERT(!is_preemption_enabled());
+   ASSERT(!is_kernel_thread(ti));
+
+   add_pending_sig(ti, signum, fl);
+
+   if (!is_sig_masked(ti, signum)) {
+      signal_wakeup_task(ti);
+   }
+}
+
+static void action_ignore(struct task *ti, int signum, int fl)
+{
+   if (ti->tid == 1 && signum != SIGCHLD) {
+      printk(
+         "WARNING: ignoring signal %s[%d] sent to init (pid 1)\n",
+         get_signal_name(signum), signum
+      );
+   }
+}
+
+static void action_stop(struct task *ti, int signum, int fl)
+{
+   ASSERT(!is_kernel_thread(ti));
+
+   trace_signal_delivered(ti->tid, signum);
+   ti->wstatus = STOPCODE(signum);
+   wake_up_tasks_waiting_on(ti, task_stopped);
+
+   /*
+    * Branch on current state:
+    *
+    *  - RUNNING or RUNNABLE: transition into TASK_STATE_STOPPED.
+    *    The task is yanked out of the runnable tree and the
+    *    scheduler won't see it until SIGCONT brings it back via
+    *    action_continue().
+    *
+    *  - SLEEPING: don't disturb the wait. Just set the stopped
+    *    flag; when the wait_obj eventually fires, wake_up() (or
+    *    tick_all_timers()) sees the flag and routes the wake to
+    *    STOPPED instead of RUNNABLE. This is the "stop-on-wake"
+    *    pattern that keeps the flag's role narrow.
+    *
+    *  - STOPPED: already stopped, nothing to do.
+    *  - ZOMBIE: dying, nothing to do.
+    */
+   const enum task_state s =
+      (enum task_state) atomic_load(&ti->state);
+
+   if (s == TASK_STATE_SLEEPING) {
+      ti->stop_pending = true;
+   } else if (s == TASK_STATE_RUNNING || s == TASK_STATE_RUNNABLE) {
+      task_change_state(ti, TASK_STATE_STOPPED);
+   }
+
+   if (ti == get_curr_task())
+      schedule_preempt_disabled();
+}
+
+static void action_continue(struct task *ti, int signum, int fl)
+{
+   ASSERT(!is_kernel_thread(ti));
+
+   if (ti->vfork_stopped)
+      return;
+
+   trace_signal_delivered(ti->tid, signum);
+   ti->wstatus = CONTINUED;
+   wake_up_tasks_waiting_on(ti, task_continued);
+
+   /*
+    * Inverse of action_stop's state branching:
+    *
+    *  - STOPPED: bring the task back into the runnable tree.
+    *  - SLEEPING with the stopped flag set: a SIGSTOP was pending
+    *    on this sleeping task. Cancel it by clearing the flag;
+    *    when the wait fires, the wake-up routes to RUNNABLE.
+    *
+    * Other states get no state change (SIGCONT to a non-stopped
+    * task is a no-op state-wise; the wstatus + waitpid wakeup
+    * above is the visible side-effect).
+    */
+   const enum task_state s =
+      (enum task_state) atomic_load(&ti->state);
+
+   if (s == TASK_STATE_STOPPED) {
+      task_change_state(ti, TASK_STATE_RUNNABLE);
+   } else if (s == TASK_STATE_SLEEPING && ti->stop_pending) {
+      ti->stop_pending = false;
+   }
+}
+
+static const action_type signal_default_actions[_NSIG] =
+{
+   [SIGHUP] = action_terminate,
+   [SIGINT] = action_terminate,
+   [SIGQUIT] = action_terminate,
+   [SIGILL] = action_terminate,
+   [SIGABRT] = action_terminate,
+   [SIGFPE] = action_terminate,
+   [SIGKILL] = action_terminate,
+   [SIGSEGV] = action_terminate,
+   [SIGPIPE] = action_terminate,
+   [SIGALRM] = action_terminate,
+   [SIGTERM] = action_terminate,
+   [SIGUSR1] = action_terminate,
+   [SIGUSR2] = action_terminate,
+
+   [SIGCHLD] = action_ignore,
+   [SIGCONT] = action_continue,
+   [SIGSTOP] = action_stop,
+   [SIGTSTP] = action_stop,
+   [SIGTTIN] = action_stop,
+   [SIGTTOU] = action_stop,
+
+   [SIGBUS] = action_terminate,
+   [SIGPOLL] = action_terminate,
+   [SIGPROF] = action_terminate,
+   [SIGSYS] = action_terminate,
+   [SIGTRAP] = action_terminate,
+
+   [SIGURG] = action_ignore,
+
+   [SIGVTALRM] = action_terminate,
+   [SIGXCPU] = action_terminate,
+   [SIGXFSZ] = action_terminate,
+   [SIGWINCH] = action_terminate,
+};
+
+static void do_send_signal(struct task *ti, int signum, int fl)
+{
+   __sighandler_t h;
+
+   ASSERT(IN_RANGE(signum, 0, _NSIG));
+
+   if (signum == 0) {
+
+      /*
+       * Do nothing, but don't treat it as an error.
+       *
+       * From kill(2):
+       *    If sig is 0, then no signal is sent, but error checking is still
+       *    performed; this can be used to check for the existence of a
+       *    process ID or process group ID.
+       */
+      return;
+   }
+
+   if (signum >= _NSIG)
+      return; /* ignore unknown and unsupported signal */
+
+   if (ti->nested_sig_handlers < 0)
+      return; /* the task is dying, no signals allowed */
+
+   h = ti->pi->sa_handlers[signum - 1];
+
+   if (ti->tid == 1 && h == SIG_DFL) {
+
+      /*
+       * From kill(2):
+       *    The only signals that can be sent to process ID 1, the init process,
+       *    are those for which init has explicitly installed signal handlers.
+       *    This is done to assure the system is not brought down accidentally.
+       */
+
+      h = SIG_IGN;
+   }
+
+   if (h == SIG_IGN) {
+
+      action_ignore(ti, signum, fl);
+
+   } else if (h == SIG_DFL) {
+
+      action_type action_func =
+         signal_default_actions[signum] != NULL
+            ? signal_default_actions[signum]
+            : action_terminate;
+
+      if (action_func)
+         action_func(ti, signum, fl);
+
+   } else {
+
+      add_pending_sig(ti, signum, fl);
+
+      if (!is_sig_masked(ti, signum))
+         signal_wakeup_task(ti);
+   }
+}
+
+int send_signal2(int pid, int tid, int signum, int flags)
+{
+   struct task *ti;
+   int rc = -ESRCH;
+
+   disable_preemption();
+
+   if (!(ti = get_task(tid)))
+      goto err_end;
+
+   if (is_kernel_thread(ti))
+      goto err_end; /* cannot send signals to kernel threads */
+
+   /* When `whole_process` is true, tid must be == pid */
+   if ((flags & SIG_FL_PROCESS) && ti->pi->pid != tid)
+      goto err_end;
+
+   if (ti->pi->pid != pid)
+      goto err_end;
+
+   if (signum == 0)
+      goto end; /* the user app is just checking permissions */
+
+   if (atomic_load(&ti->state) == TASK_STATE_ZOMBIE)
+      goto end; /* do nothing */
+
+   /* TODO: update this code when thread support is added */
+   do_send_signal(ti, signum, flags);
+
+end:
+   rc = 0;
+
+err_end:
+   enable_preemption();
+   return rc;
+}
+
+bool pending_signals(void)
+{
+   struct task *curr = get_curr_task();
+   STATIC_ASSERT(K_SIGACTION_MASK_WORDS <= 2);
+
+   if (curr->nested_sig_handlers > 0) {
+
+      /*
+       * Because we don't support nested signal handlers at the moment, it's
+       * much better to return false inconditionally here. Otherwise, in case
+       * a signal was sent during a signal handler, most syscalls will return
+       * -EINTR and the user program will likely end up in an stuck in an
+       * endless loop.
+       *
+       * TODO: add support for nested signal handlers.
+       */
+      return false;
+   }
+
+#if K_SIGACTION_MASK_WORDS == 1
+      return (curr->sa_pending[0] & ~curr->sa_mask[0]) != 0;
+#else
+      return (curr->sa_pending[0] & ~curr->sa_mask[0]) != 0 ||
+             (curr->sa_pending[1] & ~curr->sa_mask[1]) != 0;
+#endif
+}
+
+/*
+ * -------------------------------------
+ * SYSCALLS
+ * -------------------------------------
+ */
+
+/* NOTE: deprecated syscall */
+int sys_tkill(int tid, int sig)
+{
+   if (!IN_RANGE(sig, 0, _NSIG) || tid <= 0)
+      return -EINVAL;
+
+   return send_signal(tid, sig, false);
+}
+
+int sys_tgkill(int pid /* linux: tgid */, int tid, int sig)
+{
+   if (pid != tid) {
+      printk("sys_tgkill: pid != tid NOT SUPPORTED yet.\n");
+      return -EINVAL;
+   }
+
+   if (!IN_RANGE(sig, 0, _NSIG) || pid <= 0 || tid <= 0)
+      return -EINVAL;
+
+   return send_signal2(pid, tid, sig, false);
+}
+
+static int kill_each_task(void *obj, void *arg)
+{
+   struct task *ti = obj;
+   int sig = *(int *)arg;
+
+   if (ti != get_curr_task() && !is_kernel_thread(ti)) {
+      send_signal(ti->tid, sig, false);
+   }
+
+   return 0;
+}
+
+int sys_kill(int pid, int sig)
+{
+   if (!IN_RANGE(sig, 0, _NSIG))
+      return -EINVAL;
+
+   if (pid == 0)
+      return send_signal_to_group(get_curr_proc()->pgid, sig);
+
+   if (pid == -1) {
+
+      /*
+       * From kill(2):
+       *    sig is sent to every process for which the calling process has
+       *    permission to send signals, except for process 1 (init)
+       */
+
+      disable_preemption();
+      {
+         iterate_over_tasks(&kill_each_task, &sig);
+      }
+      enable_preemption();
+      return 0;
+   }
+
+   if (pid < -1)
+      return send_signal_to_group(-pid, sig);
+
+   /* pid > 0 */
+   return send_signal(pid, sig, true);
+}
+
+static int
+sigaction_int(int signum, const struct k_sigaction *user_act)
+{
+   struct k_sigaction act;
+   struct task *curr = get_curr_task();
+
+   if (copy_from_user(&act, user_act, sizeof(act)) != 0)
+      return -EFAULT;
+
+   if (act.sa_flags & SA_NOCLDSTOP) {
+      return -EINVAL; /* not supported */
+   }
+
+   if (act.sa_flags & SA_NOCLDWAIT) {
+      return -EINVAL; /* not supported */
+   }
+
+   if (act.sa_flags & SA_SIGINFO) {
+      return -EINVAL; /* not supported */
+   }
+
+   if (act.sa_flags & SA_ONSTACK) {
+      return -EINVAL; /* not supported */
+   }
+
+   if (act.sa_flags & SA_RESETHAND) {
+      /* TODO: add support for this simple flag */
+   }
+
+   if (act.sa_flags & SA_NODEFER) {
+
+      /*
+       * Just ignore this. For the moment, Tilck will block the delivery of
+       * signals with custom handlers, if ANY signal handler is running.
+       */
+   }
+
+   if (act.sa_flags & SA_RESTART) {
+      /* For the moment, silently signore this important flag too. */
+   }
+
+   curr->pi->sa_handlers[signum - 1] = act.handler;
+   return 0;
+}
+
+int
+sys_rt_sigaction(int signum,
+                 const struct k_sigaction *user_act,
+                 struct k_sigaction *user_oldact,
+                 size_t sigsetsize)
+{
+   struct k_sigaction oldact;
+   int rc = 0;
+   struct task *curr = get_curr_task();
+
+   if (!IN_RANGE(signum, 1, _NSIG))
+      return -EINVAL;
+
+   if (signum == SIGKILL || signum == SIGSTOP)
+      return -EINVAL;
+
+   if (sigsetsize < sizeof(oldact.sa_mask))
+      return -EINVAL;
+
+   disable_preemption();
+   {
+      if (user_oldact != NULL) {
+
+         oldact = (struct k_sigaction) {
+            .handler = curr->pi->sa_handlers[signum - 1],
+            .sa_flags = 0,
+            .restorer = NULL
+         };
+
+         /*
+          * Since we don't support per-signal masks, just made up on-the-fly
+          * the "mask" we're using: all signals are masked except for SIGKILL
+          * and SIGSTOP.
+          */
+         memset(&oldact.sa_mask, 0xff, sizeof(oldact.sa_mask));
+         __del_sig(oldact.sa_mask, SIGKILL);
+         __del_sig(oldact.sa_mask, SIGSTOP);
+      }
+
+      if (user_act != NULL) {
+         rc = sigaction_int(signum, user_act);
+      }
+   }
+   enable_preemption();
+
+   if (!rc && user_oldact != NULL) {
+
+      rc = copy_to_user(user_oldact, &oldact, sizeof(oldact));
+
+      if (!rc && sigsetsize > sizeof(oldact.sa_mask)) {
+
+         ulong diff = sigsetsize - sizeof(oldact.sa_mask);
+
+         rc = copy_to_user(
+            (char *)user_oldact + sizeof(oldact), zero_page, diff
+         );
+      }
+   }
+
+   return rc;
+}
+
+int
+sys_rt_sigprocmask(int how,
+                   sigset_t *user_set,
+                   sigset_t *user_oldset,
+                   size_t sigsetsize)
+{
+   int rc;
+   struct task *ti = get_curr_task();
+
+   ASSERT(!is_preemption_enabled()); /* Thanks to SYSFL_NO_PREEMPT */
+
+   if (user_oldset) {
+
+      rc = copy_to_user(user_oldset, ti->sa_mask, sigsetsize);
+
+      if (rc)
+         return rc;
+
+      if (sigsetsize > sizeof(ti->sa_mask)) {
+
+         const size_t diff = sigsetsize - sizeof(ti->sa_mask);
+
+         rc = copy_to_user(
+            (char *)user_oldset + sizeof(ti->sa_mask),
+            zero_page,
+            diff
+         );
+
+         if (rc)
+            return rc;
+      }
+   }
+
+   if (user_set) {
+
+      for (u32 i = 0; i < K_SIGACTION_MASK_WORDS; i++) {
+
+         ulong w = 0;
+
+         rc = copy_from_user(
+            &w,
+            (char *)user_set + i * sizeof(ulong),
+            sizeof(ulong)
+         );
+
+         if (rc)
+            return -EFAULT;
+
+         switch (how) {
+
+            case SIG_BLOCK:
+               ti->sa_mask[i] |= w;
+               break;
+
+            case SIG_UNBLOCK:
+               ti->sa_mask[i] &= ~w;
+               break;
+
+            case SIG_SETMASK:
+               ti->sa_mask[i] = w;
+               break;
+
+            default:
+               return -EINVAL;
+         }
+      }
+
+      __del_sig(ti->sa_mask, SIGSTOP);
+      __del_sig(ti->sa_mask, SIGKILL);
+
+   }
+
+   return 0;
+}
+
+int
+sys_rt_sigpending(sigset_t *u_set, size_t sigsetsize)
+{
+   int rc;
+   struct task *ti = get_curr_task();
+
+   ASSERT(!is_preemption_enabled()); /* Thanks to SYSFL_NO_PREEMPT */
+
+   if (!u_set)
+      return 0;
+
+   rc = copy_to_user(u_set, ti->sa_pending, sigsetsize);
+
+   if (rc)
+      return rc;
+
+   if (sigsetsize > sizeof(ti->sa_pending)) {
+
+      const size_t diff = sigsetsize - sizeof(ti->sa_pending);
+
+      rc = copy_to_user(
+         (char *)u_set + sizeof(ti->sa_pending),
+         zero_page,
+         diff
+      );
+
+      if (rc)
+         return rc;
+   }
+
+   return 0;
+}
+
+int sys_rt_sigsuspend(sigset_t *u_mask, size_t sigsetsize)
+{
+   int rc;
+   struct task *curr = get_curr_task();
+
+   ASSERT(!is_preemption_enabled()); /* Thanks to SYSFL_NO_PREEMPT */
+
+   if (curr->nested_sig_handlers > 0) {
+
+      /*
+       * For the moment, we don't support nested signal handlers. Therefore,
+       * it doesn't make sense allowing sigsuspend() to be called from a signal
+       * handler and expect a signal to be delivered.
+       *
+       * TODO: add support for nested signal handlers.
+       */
+
+      return -EPERM;
+   }
+
+   /*
+    * The `in_sigsuspend` flag must NOT be set here, as we already checked
+    * that we're not running inside a signal handler.
+    */
+   ASSERT(!curr->in_sigsuspend);
+
+   if (sigsetsize < sizeof(curr->sa_mask))
+      return -EINVAL;
+
+   /* OK, we're not in a signal handler. Now, save the current signal mask. */
+   memcpy(curr->sa_old_mask, curr->sa_mask, sizeof(curr->sa_old_mask));
+
+   /* Now try to set the new mask */
+   rc = copy_from_user(curr->sa_mask, u_mask, sizeof(curr->sa_mask));
+
+   if (rc) {
+
+      /* Oops, u_mask pointed to invalid memory in userspace */
+      /* Restore the saved mask */
+      memcpy(curr->sa_mask, curr->sa_old_mask, sizeof(curr->sa_old_mask));
+      return -EFAULT;
+   }
+
+   /*
+    * We must raise the `in_sigsuspend` flag, otherwise the old mask won't be
+    * restored.
+    */
+   curr->in_sigsuspend = true;
+
+   /*
+    * OK, now the signal mask has been updated, but we cannot still fully trust
+    * user code and allow it to mask SIGKILL and SIGSTOP.
+    */
+
+   __del_sig(curr->sa_mask, SIGKILL);
+   __del_sig(curr->sa_mask, SIGSTOP);
+
+   /*
+    * OK, now go to sleep, behaving like sys_pause(). sys_rt_sigreturn() will
+    * restore the old mask.
+    */
+
+   return sys_pause();
+}
+
+int sys_pause(void)
+{
+   ASSERT(!is_preemption_enabled()); /* Thanks to SYSFL_NO_PREEMPT */
+
+   /*
+    * Note: sys_pause() doesn't really need to run with preemption disabled like
+    * sys_rt_sigsuspend() does. It's just more convenient this way because it
+    * allows sys_rt_sigsuspend() to call it directly.
+    */
+
+   while (!pending_signals()) {
+      task_change_state(get_curr_task(), TASK_STATE_SLEEPING);
+      schedule_preempt_disabled();
+      disable_preemption();
+   }
+
+   return -EINTR;
+}
+
+int sys_sigprocmask(ulong a1, ulong a2, ulong a3)
+{
+   NOT_IMPLEMENTED(); // deprecated interface
+}
+
+int sys_sigaction(ulong a1, ulong a2, ulong a3)
+{
+   NOT_IMPLEMENTED(); // deprecated interface
+}
+
+__sighandler_t sys_signal(int signum, __sighandler_t handler)
+{
+   NOT_IMPLEMENTED(); // deprecated interface
+}
+
+ulong sys_rt_sigreturn(void)
+{
+   ulong user_sp;
+   struct task *curr = get_curr_task();
+   regs_t *r = curr->state_regs;
+
+   ASSERT(!is_preemption_enabled()); /* Thanks to SYSFL_NO_PREEMPT */
+
+   if (LIKELY(curr->nested_sig_handlers > 0)) {
+
+      trace_printk(10, "Done running signal handler");
+
+      user_sp = regs_get_usersp(r);
+      user_sp +=
+         sizeof(ulong)               /* compensate the "push signum" above    */
+         + SIG_HANDLER_ALIGN_ADJUST; /* compensate the forced stack alignment */
+      regs_set_usersp(r, user_sp);
+
+      if (!process_signals(curr, sig_in_return, r)) {
+
+         if (curr->in_sigsuspend) {
+            memcpy(curr->sa_mask, curr->sa_old_mask, sizeof(curr->sa_mask));
+            curr->in_sigsuspend = false;
+         }
+
+         restore_regs_from_user_stack(r);
+      }
+
+      curr->nested_sig_handlers--;
+      ASSERT(curr->nested_sig_handlers >= 0);
+
+   } else {
+
+      /* An user process tried to call directly rt_sigreturn() */
+      set_return_register(r, (ulong) -ENOSYS);
+   }
+
+   /*
+    * NOTE: we must return r->eax because syscalls are called by handle_syscall
+    * in a generic way like:
+    *
+    *     r->eax = (ulong) fptr(...)
+    *
+    * Returning anything else than r->eax would change that register and we
+    * don't wanna do that in a special NORETURN function such this. Here we're
+    * supposed to restore all the user registers as they were before the signal
+    * handler ran. Failing to do that, has an especially visible effect when
+    * a signal handler run after preempting running code in userspace: in that
+    * case, no syscall was made and no register is expected to ever change,
+    * exactly like in context switch.
+    */
+   return get_return_register(r);
+}

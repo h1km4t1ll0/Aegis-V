@@ -1,0 +1,34 @@
+The fork's riscv.c comes from a later GCC, where TARGET_RTX_COSTS is
+(rtx x, machine_mode mode, int outer_code, int opno, int *total, bool speed).
+GCC 4.6 calls it as targetm.rtx_costs (x, code, outer_code, &total, speed)
+(rtlanal.c rtx_cost): riscv_rtx_costs took the rtx code (PLUS, MULT, the
+shifts, the comparisons: 49 to 59 here) for its `mode` and indexed
+mode_class[] (FLOAT_MODE_P) and mode_size[] (GET_MODE_SIZE), 41 entries,
+with it. It read whatever table the linker put after them, so every cost of
+an addition, a multiplication or a shift depended on the layout of
+insn-modes.o's .rodata. gcc-3's cc1 (built at -O1, tables in reverse order)
+and gcc-4's (built at -O0, tables in source order) chose different
+multiplication sequences and registers for the same input (19-gcc464 README,
+rung gcc4, "Fixed point"). MIPS's 4.6 port, which this one follows, takes
+the mode from X.
+
+--- a/gcc/config/riscv/riscv.c
++++ b/gcc/config/riscv/riscv.c
+@@ -1409,11 +1409,15 @@
+   return COSTS_N_INSNS (2);
+ }
+ 
+-/* Implement TARGET_RTX_COSTS.  */
++/* Implement TARGET_RTX_COSTS.  GCC 4.6 passes the rtx code of X as the
++   second argument (rtlanal.c rtx_cost), not a mode; the mode is X's own,
++   as in mips_rtx_costs.  */
+ 
+ static bool
+-riscv_rtx_costs (rtx x, enum machine_mode mode, int outer_code, int *total, bool speed)
++riscv_rtx_costs (rtx x, int code ATTRIBUTE_UNUSED, int outer_code, int *total,
++		 bool speed)
+ {
++  enum machine_mode mode = GET_MODE (x);
+   bool float_mode_p = FLOAT_MODE_P (mode);
+   int cost;
+ 

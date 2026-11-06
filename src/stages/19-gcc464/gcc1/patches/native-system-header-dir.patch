@@ -1,0 +1,30 @@
+Restore GCC 4.6.4's default NATIVE_SYSTEM_HEADER_DIR and pass it to
+cppdefault.c, as GCC 4.7 does (19-gcc464 README, "Patches").
+
+Ekaitz's fork comments out `NATIVE_SYSTEM_HEADER_DIR = /usr/include` (its
+only change to gcc/Makefile.in against releases/gcc-4.6.4; Guix has no
+/usr/include and sets C_INCLUDE_PATH), and its musl INCLUDE_DEFAULTS
+(gcc/config/linux.h, from GCC 4.7) take /usr/include only from a
+NATIVE_SYSTEM_HEADER_DIR macro that 4.6's Makefile never defines. On Tilck
+xgcc then searched no system directory: building libgcc stopped with
+`tsystem.h:87:19: fatal error: stdio.h: No such file or directory`.
+
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -440,7 +440,7 @@
+ LTO_SYMTAB_H = $(srcdir)/../include/lto-symtab.h
+ 
+ # Default native SYSTEM_HEADER_DIR, to be overridden by targets.
+-# NATIVE_SYSTEM_HEADER_DIR = /usr/include
++NATIVE_SYSTEM_HEADER_DIR = /usr/include
+ # Default cross SYSTEM_HEADER_DIR, to be overridden by targets.
+ CROSS_SYSTEM_HEADER_DIR = @CROSS_SYSTEM_HEADER_DIR@
+ 
+@@ -3984,6 +3984,7 @@
+   -DGPLUSPLUS_BACKWARD_INCLUDE_DIR=\"$(gcc_gxx_include_dir)/backward\" \
+   -DLOCAL_INCLUDE_DIR=\"$(local_includedir)\" \
+   -DCROSS_INCLUDE_DIR=\"$(CROSS_SYSTEM_HEADER_DIR)\" \
++  -DNATIVE_SYSTEM_HEADER_DIR=\"$(NATIVE_SYSTEM_HEADER_DIR)\" \
+   -DTOOL_INCLUDE_DIR=\"$(gcc_tooldir)/include\" \
+   -DPREFIX=\"$(prefix)/\" \
+   -DSTANDARD_EXEC_PREFIX=\"$(libdir)/gcc/\" \

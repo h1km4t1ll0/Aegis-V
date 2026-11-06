@@ -1,0 +1,604 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
+#define __SYSCALLS_C__
+
+#include <tilck_gen_headers/config_mm.h>
+#include <tilck/common/basic_defs.h>
+#include <tilck/common/build_info.h>
+#include <tilck/common/string_util.h>
+
+#include <tilck/kernel/syscalls.h>
+#include <tilck/kernel/debug_utils.h>
+#include <tilck/kernel/user.h>
+#include <tilck/kernel/process.h>
+#include <tilck/kernel/signal.h>
+#include <tilck/kernel/timer.h>
+#include <tilck/kernel/datetime.h>
+#include <tilck/kernel/fs/vfs.h>
+
+#include <linux/sched.h> // system header
+
+
+#define LINUX_REBOOT_MAGIC1         0xfee1dead
+#define LINUX_REBOOT_MAGIC2          672274793
+#define LINUX_REBOOT_MAGIC2A          85072278
+#define LINUX_REBOOT_MAGIC2B         369367448
+#define LINUX_REBOOT_MAGIC2C         537993216
+
+#define LINUX_REBOOT_CMD_RESTART     0x1234567
+#define LINUX_REBOOT_CMD_RESTART2   0xa1b2c3d4
+#define LINUX_REBOOT_CMD_HALT       0xcdef0123
+#define LINUX_REBOOT_CMD_POWER_OFF  0x4321fedc
+
+int sys_madvise(void *addr, size_t len, int advice)
+{
+   // TODO (future): consider implementing at least part of sys_madvice().
+   return 0;
+}
+
+int
+do_nanosleep(const struct k_timespec64 *req, struct k_timespec64 *rem)
+{
+   u64 ticks_to_sleep;
+   u64 exp_wake_up_ticks;
+
+   ticks_to_sleep = timespec_to_ticks(req);
+   exp_wake_up_ticks = get_ticks() + ticks_to_sleep;
+   kernel_sleep(ticks_to_sleep);
+
+   /* After wake-up */
+   rem->tv_sec = 0;
+   rem->tv_nsec = 0;
+
+   if (pending_signals()) {
+
+      u64 ticks = get_ticks();
+
+      if (ticks < exp_wake_up_ticks)
+         ticks_to_timespec(exp_wake_up_ticks - ticks, rem);
+
+      return -EINTR;
+   }
+
+   return 0;
+}
+
+int
+sys_nanosleep_time32(const struct k_timespec32 *user_req,
+                     struct k_timespec32 *user_rem)
+{
+   struct k_timespec32 req32;
+   struct k_timespec64 req;
+   struct k_timespec32 rem32;
+   struct k_timespec64 rem;
+   int rc, copy_rc;
+
+   if (copy_from_user(&req32, user_req, sizeof(req)))
+      return -EFAULT;
+
+   req = (struct k_timespec64) {
+      .tv_sec = req32.tv_sec,
+      .tv_nsec = req32.tv_nsec,
+   };
+
+   rc = do_nanosleep(&req, &rem);
+
+   if (user_rem) {
+
+      rem32 = (struct k_timespec32) {
+         .tv_sec = (s32) rem.tv_sec,
+         .tv_nsec = rem.tv_nsec,
+      };
+
+      if ((copy_rc = copy_to_user(user_rem, &rem32, sizeof(rem32))))
+         return copy_rc;
+   }
+
+   return rc;
+}
+
+long sys_nanosleep(const struct k_timespec64 *u_req,
+                   struct k_timespec64 *u_rem)
+{
+   struct k_timespec64 req;
+   struct k_timespec64 rem;
+   int rc, copy_rc;
+
+   if (copy_from_user(&req, u_req, sizeof(req)))
+      return -EFAULT;
+
+   rc = do_nanosleep(&req, &rem);
+
+   if (u_rem) {
+      if ((copy_rc = copy_to_user(u_rem, &rem, sizeof(rem))))
+         return copy_rc;
+   }
+
+   return rc;
+}
+
+/*
+ * Aegis-V (12-tilck README): Tilck has a single nice level. getpriority()
+ * gives the kernel ABI value 20 - nice = 20 (musl turns it into 0), and
+ * setpriority() accepts any value without changing anything, so nice(1)
+ * and coreutils' nice run their command. Only PRIO_PROCESS, PRIO_PGRP and
+ * PRIO_USER (0-2) are valid.
+ */
+int sys_getpriority(int which, int who)
+{
+   if (which < 0 || which > 2)
+      return -EINVAL;
+
+   return 20;
+}
+
+int sys_setpriority(int which, int who, int prio)
+{
+   if (which < 0 || which > 2)
+      return -EINVAL;
+
+   return 0;
+}
+
+/*
+ * Aegis-V (12-tilck README): resource limits. Tilck's are fixed: 256 open
+ * files (KRN_MAX_HANDLES), an 8 MB user stack (KRN_USER_STACK_PAGES), no
+ * limit on the rest. getrlimit() and prlimit64() report them (they were
+ * -ENOSYS: musl's sysconf(_SC_OPEN_MAX) then returned an uninitialized value,
+ * and binutils' BFD, which keeps RLIMIT_NOFILE / 8 files open, ran out of
+ * fds in `ar rc` of musl's 1324 objects). setrlimit() and prlimit64() with
+ * new limits check them (resource, cur <= max) and keep nothing.
+ */
+struct aegis_rlimit {
+   u64 cur;
+   u64 max;
+};
+
+#define AEGIS_RLIM_NLIMITS  16
+#define AEGIS_RLIMIT_STACK   3
+#define AEGIS_RLIMIT_NOFILE  7
+
+static int aegis_rlimit(int resource, struct aegis_rlimit *r)
+{
+   if (resource < 0 || resource >= AEGIS_RLIM_NLIMITS)
+      return -EINVAL;
+
+   r->cur = r->max = (u64)-1; /* RLIM_INFINITY */
+
+   if (resource == AEGIS_RLIMIT_NOFILE)
+      r->cur = r->max = KRN_MAX_HANDLES;
+   else if (resource == AEGIS_RLIMIT_STACK)
+      r->cur = r->max = (u64)KRN_USER_STACK_PAGES * PAGE_SIZE;
+
+   return 0;
+}
+
+int sys_prlimit64(int pid, int resource, const void *u_new, void *u_old)
+{
+   struct aegis_rlimit r, n;
+   int rc;
+
+   if (pid != 0 && pid != get_curr_pid())
+      return -ESRCH;
+
+   if ((rc = aegis_rlimit(resource, &r)))
+      return rc;
+
+   if (u_new) {
+
+      if (copy_from_user(&n, u_new, sizeof(n)))
+         return -EFAULT;
+
+      if (n.cur > n.max)
+         return -EINVAL;
+   }
+
+   if (u_old && copy_to_user(u_old, &r, sizeof(r)))
+      return -EFAULT;
+
+   return 0;
+}
+
+int sys_getrlimit(int resource, void *u_rlim)
+{
+   return sys_prlimit64(0, resource, NULL, u_rlim);
+}
+
+int sys_setrlimit(int resource, const void *u_rlim)
+{
+   return sys_prlimit64(0, resource, u_rlim, NULL);
+}
+
+int sys_newuname(struct utsname *user_buf)
+{
+   struct utsname buf = {0};
+   struct commit_hash_and_date comm;
+   int rc;
+
+   extract_commit_hash_and_date(&tilck_build_info, &comm);
+
+   strcpy(buf.sysname, "Tilck");
+   strcpy(buf.nodename, "tilck");
+   strcpy(buf.version, comm.hash);
+   strcpy(buf.release, tilck_build_info.ver);
+   strcpy(buf.machine, tilck_build_info.arch);
+
+   if ((rc = copy_to_user(user_buf, &buf, sizeof(struct utsname))) < 0)
+      return rc;
+
+   return 0;
+}
+
+NORETURN int sys_exit(int exit_status)
+{
+   terminate_process(exit_status, 0 /* term_sig */);
+
+   /* Necessary to guarantee to the compiler that we won't return. */
+   NOT_REACHED();
+}
+
+NORETURN int sys_exit_group(int status)
+{
+   // TODO: update when user threads are supported
+   sys_exit(status);
+}
+
+ulong sys_times(struct tms *user_buf)
+{
+   struct tms buf;
+   struct task *curr = get_curr_task();
+   int rc;
+
+   // TODO (threads): when threads are supported, update sys_times()
+   // TODO: consider supporting tms_cutime and tms_cstime in sys_times()
+
+   disable_preemption();
+   {
+
+      buf = (struct tms) {
+         .tms_utime = (clock_t) curr->ticks.total,
+         .tms_stime = (clock_t) curr->ticks.total_kernel,
+         .tms_cutime = 0,
+         .tms_cstime = 0,
+      };
+
+   }
+   enable_preemption();
+
+   if ((rc = copy_to_user(user_buf, &buf, sizeof(buf))) != 0)
+      return (ulong) rc;
+
+   return (ulong) get_ticks();
+}
+
+int sys_getrusage(int who, struct k_rusage *user_buf)
+{
+   struct k_rusage buf;
+   u64 utime_ticks;
+   u64 stime_ticks;
+   struct k_timespec64 utime;
+   struct k_timespec64 stime;
+   struct task *curr = get_curr_task();
+   int rc;
+
+   /*
+    * Of course in the syscall entry point
+    * interrupts are enabled
+    */
+   ASSERT(are_interrupts_enabled());
+
+   if (who == RUSAGE_CHILDREN)
+      /*
+       * TODO: Resource usage of a process's children
+       *       isn't supported yet!
+       */
+      return -EINVAL;
+
+   if (who != RUSAGE_SELF && who != RUSAGE_THREAD)
+      return -EINVAL;
+
+   /*
+    * Since there can only be one thread per process,
+    * RUSAGE_SELF and RUSAGE_THREAD have the same meaning.
+    */
+   disable_interrupts_forced();
+   {
+      stime_ticks = curr->ticks.total_kernel;
+      utime_ticks = curr->ticks.total - curr->ticks.total_kernel;
+   }
+   enable_interrupts_forced();
+
+   ticks_to_timespec(utime_ticks, &utime);
+   ticks_to_timespec(stime_ticks, &stime);
+
+   buf = (struct k_rusage) {
+
+      .ru_utime = k_ts64_to_k_timeval(utime),
+      .ru_stime = k_ts64_to_k_timeval(stime),
+
+      /* linux extentions */
+      .ru_maxrss = 0,
+      .ru_ixrss  = 0,
+      .ru_idrss  = 0,
+      .ru_isrss  = 0,
+      .ru_minflt = 0,
+      .ru_majflt = 0,
+      .ru_nswap  = 0,
+      .ru_inblock = 0,
+      .ru_oublock = 0,
+      .ru_msgsnd = 0,
+      .ru_msgrcv = 0,
+      .ru_nsignals = 0,
+      .ru_nvcsw  = 0,
+      .ru_nivcsw = 0,
+   };
+
+   if ((rc = copy_to_user(user_buf, &buf, sizeof(buf))))
+      return rc;
+
+   return 0;
+}
+
+int sys_fork(void *u_regs)
+{
+   return do_fork(u_regs, false);
+}
+
+int sys_vfork(void *u_regs)
+{
+   return do_fork(u_regs, true);
+}
+
+long sys_clone(regs_t *u_regs, ulong clone_flags, ulong newsp,
+               int *u_parent_tidptr, int *u_child_tidptr, ulong tls)
+{
+   // TODO: Add full support for clone()
+
+   if (clone_flags == SIGCHLD)
+      return sys_fork(u_regs);
+
+   if (clone_flags == (CLONE_VFORK | CLONE_VM | SIGCHLD))
+      return sys_vfork(u_regs);
+
+   return -ENOSYS;
+}
+
+static int
+stop_all_user_tasks(void *task, void *unused)
+{
+   struct task *ti = task;
+
+   if (is_kernel_thread(ti) || ti == get_curr_task())
+      return 0;
+
+   printk("Stopping TID %d\n", ti->tid);
+
+   /*
+    * Apply the freeze per state so the scheduler honors it:
+    *
+    *   - RUNNABLE: transition straight to STOPPED.
+    *   - SLEEPING: arm stop_pending so the next wake routes to
+    *     STOPPED (see kernel/wobj.c).
+    *
+    * Preemption is off in the caller but interrupts may be on, so
+    * use the safe wrapper.
+    */
+   const enum task_state s =
+      (enum task_state) atomic_load(&ti->state);
+
+   if (s == TASK_STATE_RUNNABLE)
+      task_change_state(ti, TASK_STATE_STOPPED);
+   else if (s == TASK_STATE_SLEEPING)
+      ti->stop_pending = true;
+
+   return 0;
+}
+
+static void
+kernel_shutdown(void)
+{
+   extern volatile bool __in_kernel_shutdown;
+
+   if (__in_kernel_shutdown)
+      return;
+
+   __in_kernel_shutdown = true;
+   printk("The system is shutting down.\n");
+
+   disable_preemption();
+   {
+      iterate_over_tasks(&stop_all_user_tasks, NULL);
+   }
+   enable_preemption();
+
+   /* Give kernel threads a chance to run and complete their work */
+   for (int i = 0; i < 10; i++)
+      kernel_yield();
+
+   printk("Shutdown complete.\n");
+}
+
+int sys_reboot(u32 magic, u32 magic2, u32 cmd, void *arg)
+{
+   if (magic != LINUX_REBOOT_MAGIC1)
+      return -EINVAL;
+
+   if (magic2 != LINUX_REBOOT_MAGIC2  &&
+       magic2 != LINUX_REBOOT_MAGIC2A &&
+       magic2 != LINUX_REBOOT_MAGIC2B &&
+       magic2 != LINUX_REBOOT_MAGIC2C)
+   {
+      return -EINVAL;
+   }
+
+   switch (cmd) {
+
+      case LINUX_REBOOT_CMD_RESTART:
+      case LINUX_REBOOT_CMD_RESTART2:
+         kernel_shutdown();
+#if !defined(UNIT_TEST_ENVIRONMENT) || defined(__linux__)
+         reboot();
+#endif
+         break;
+
+      case LINUX_REBOOT_CMD_HALT:
+         kernel_shutdown();
+         disable_interrupts_forced();
+         while (true) { halt(); }
+         break;
+
+      case LINUX_REBOOT_CMD_POWER_OFF:
+         kernel_shutdown();
+#if !defined(UNIT_TEST_ENVIRONMENT) || defined(__linux__)
+         poweroff();
+#endif
+         break;
+
+      default:
+         return -EINVAL;
+   }
+
+   return 0;
+}
+
+int sys_sched_yield(void)
+{
+   kernel_yield();
+   return 0;
+}
+
+int sys_utimes(const char *u_path, const struct k_timeval u_times[2])
+{
+   struct k_timeval ts[2];
+   struct k_timespec64 new_ts[2];
+   char *path = get_curr_task()->args_copybuf;
+
+   if (copy_str_from_user(path, u_path, MAX_PATH, NULL))
+      return -EFAULT;
+
+   if (u_times) {
+
+      if (copy_from_user(ts, u_times, sizeof(ts)))
+         return -EFAULT;
+
+      new_ts[0] = (struct k_timespec64) {
+         .tv_sec = ts[0].tv_sec,
+         .tv_nsec = ((long)ts[0].tv_usec) * 1000,
+      };
+
+      new_ts[1] = (struct k_timespec64) {
+         .tv_sec = ts[1].tv_sec,
+         .tv_nsec = ((long)ts[1].tv_usec) * 1000,
+      };
+
+   } else {
+
+      /*
+       * If `u_times` is NULL, the access and modification times of the file
+       * are set to the current time.
+       */
+
+      real_time_get_timespec(&new_ts[0]);
+      new_ts[1] = new_ts[0];
+   }
+
+   return vfs_utimens(path, new_ts);
+}
+
+int sys_utime32(const char *u_path, const struct k_utimbuf *u_times)
+{
+   struct k_utimbuf ts;
+   struct k_timespec64 new_ts[2];
+   char *path = get_curr_task()->args_copybuf;
+
+
+   if (copy_from_user(&ts, u_times, sizeof(ts)))
+      return -EFAULT;
+
+   if (copy_str_from_user(path, u_path, MAX_PATH, NULL))
+      return -EFAULT;
+
+   new_ts[0] = (struct k_timespec64) {
+      .tv_sec = ts.actime,
+      .tv_nsec = 0,
+   };
+
+   new_ts[1] = (struct k_timespec64) {
+      .tv_sec = ts.modtime,
+      .tv_nsec = 0,
+   };
+
+   return vfs_utimens(path, new_ts);
+}
+
+/* Linux's UTIME_NOW, UTIME_OMIT (uapi linux/stat.h) */
+#define AEGIS_UTIME_NOW  ((1l << 30) - 1l)
+#define AEGIS_UTIME_OMIT ((1l << 30) - 2l)
+
+long sys_utimensat(int dirfd, const char *u_path,
+                   struct k_timespec64 utimes[2], int flags)
+{
+   //TODO: Add support for fully utimensat() features
+
+   struct k_timespec64 new_ts[2];
+   char *path = get_curr_task()->args_copybuf;
+
+   if (flags || (dirfd != AT_FDCWD))
+      return -ENOSYS;
+
+   if (copy_str_from_user(path, u_path, MAX_PATH, NULL))
+      return -EFAULT;
+
+   if (utimes) {
+
+      /*
+       * Aegis-V (12-tilck README): the times are copied into new_ts, which
+       * vfs_utimens() gets (they went to an unused k_timeval array, and the
+       * file got the uninitialized new_ts). UTIME_NOW is the current time;
+       * ramfs keeps only the mtime, so an mtime of UTIME_OMIT changes nothing.
+       */
+      if (copy_from_user(new_ts, utimes, sizeof(new_ts)))
+         return -EFAULT;
+
+      if (new_ts[1].tv_nsec == AEGIS_UTIME_OMIT)
+         return 0;
+
+      if (new_ts[0].tv_nsec == AEGIS_UTIME_NOW)
+         real_time_get_timespec(&new_ts[0]);
+
+      if (new_ts[1].tv_nsec == AEGIS_UTIME_NOW)
+         real_time_get_timespec(&new_ts[1]);
+
+   } else {
+
+      /*
+       * If `u_times` is NULL, the access and modification times of the file
+       * are set to the current time.
+       */
+
+      real_time_get_timespec(&new_ts[0]);
+      new_ts[1] = new_ts[0];
+   }
+
+   return vfs_utimens(path, new_ts);
+}
+
+int sys_utimensat_time32(int dirfd, const char *u_path,
+                         const struct k_timespec32 times[2], int flags)
+{
+   // TODO (future): consider implementing sys_utimensat() [modern]
+   return -ENOSYS;
+}
+
+int sys_futimesat_time32(int dirfd, const char *u_path,
+                         const struct k_timeval times[2])
+{
+   // TODO (future): consider implementing sys_futimesat_time32() [obsolete]
+   return -ENOSYS;
+}
+
+int sys_socketcall(int call, ulong *args)
+{
+   return -ENOSYS;
+}
+

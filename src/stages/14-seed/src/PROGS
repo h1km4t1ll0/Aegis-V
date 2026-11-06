@@ -1,0 +1,18 @@
+usr/bin/tcc -DONE_SOURCE=1 /src/seed/tcc/tcc.c
+usr/bin/kaem -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools/Kaem/kaem.c /src/seed/mescc-tools/Kaem/variable.c /src/seed/mescc-tools/Kaem/kaem_globals.c /src/seed/M2libc/bootstrappable.c
+usr/bin/catm -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/catm.c
+usr/bin/cp -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/cp.c /src/seed/M2libc/bootstrappable.c
+usr/bin/chmod -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/chmod.c /src/seed/M2libc/bootstrappable.c
+usr/bin/match -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/match.c /src/seed/M2libc/bootstrappable.c
+usr/bin/mkdir -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/mkdir.c /src/seed/M2libc/bootstrappable.c
+usr/bin/rm -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/rm.c /src/seed/M2libc/bootstrappable.c
+usr/bin/replace -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/replace.c /src/seed/M2libc/bootstrappable.c
+usr/bin/sha256sum -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/sha256sum.c /src/seed/M2libc/bootstrappable.c
+usr/bin/untar -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/untar.c /src/seed/M2libc/bootstrappable.c
+usr/bin/ungz -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/ungz.c /src/seed/M2libc/bootstrappable.c
+usr/bin/unbz2 -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/unbz2.c /src/seed/M2libc/bootstrappable.c
+usr/bin/unxz -D_GNU_SOURCE -I /src/seed /src/seed/mescc-tools-extra/unxz.c /src/seed/M2libc/bootstrappable.c
+usr/bin/checksum-transcriber -I /src/seed/M2libc /src/seed/live-bootstrap/checksum-transcriber.c /src/seed/M2libc/bootstrappable.c
+usr/bin/simple-patch -I /src/seed -include fcntl.h -include unistd.h /src/seed/live-bootstrap/simple-patch.c /src/seed/M2libc/bootstrappable.c
+usr/bin/mkustar /src/musl-tools/mkustar.c
+rung-init /src/seed/rung-init.c

@@ -21,6 +21,8 @@ void trap_c(unsigned long mcause, unsigned long *regs)
     uart_hex(mcause);
     uart_puts(" mepc ");
     uart_hex(epc);
+    uart_puts(" ra ");
+    uart_hex(regs[1]);
     uart_puts(" sp ");
     uart_hex(regs[2]);
     uart_puts(" gp ");

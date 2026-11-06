@@ -28,7 +28,7 @@ These compilers are not original to this repo. Each stage README names the upstr
 
 **Written here (not a copy of the above):** Kronos, pnut `riscv64.c`, Simon ramfs/`do`, pack/QEMU drivers. Typical adaptations of upstream: strip ELF so Simon can `do` a raw image at `0x82000000`; concatenate sources for compilers that have no `#include`; libc stubs instead of musl.
 
-After tcc4 the ladder is [docs/2026-08-29-compiler-ladder.md](docs/2026-08-29-compiler-ladder.md): tcc5 → tcc5 self-host → gcc 4.0.4 → gcc 4.7.4.
+After tcc4 the ladder is [docs/2026-08-29-compiler-ladder.md](docs/2026-08-29-compiler-ladder.md): tcc5 → tcc6 → GCC 4.6.4 (RISC-V fork, guest-built from source).
 
 ## Build (QEMU virt)
 

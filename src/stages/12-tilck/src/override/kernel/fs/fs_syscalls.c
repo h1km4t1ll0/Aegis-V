@@ -1,0 +1,1287 @@
+/* SPDX-License-Identifier: BSD-2-Clause */
+
+#include <tilck/common/basic_defs.h>
+
+#include <tilck/kernel/process.h>
+#include <tilck/kernel/hal.h>
+#include <tilck/kernel/fs/vfs.h>
+#include <tilck/kernel/fs/kernelfs.h>
+#include <tilck/kernel/errno.h>
+#include <tilck/kernel/user.h>
+#include <tilck/kernel/fault_resumable.h>
+#include <tilck/kernel/syscalls.h>
+#include <tilck/kernel/pipe.h>
+
+static inline bool is_fd_in_valid_range(int fd)
+{
+   return IN_RANGE(fd, 0, KRN_MAX_HANDLES);
+}
+
+static int get_free_handle_num_ge(struct process *pi, int ge)
+{
+   ASSERT(kmutex_is_curr_task_holding_lock(&pi->fslock));
+
+   for (int free_fd = ge; free_fd < KRN_MAX_HANDLES; free_fd++)
+      if (!pi->handles[free_fd])
+         return free_fd;
+
+   return -1;
+}
+
+static int get_free_handle_num(struct process *pi)
+{
+   return get_free_handle_num_ge(pi, 0);
+}
+
+/*
+ * Even if getting the fs_handle this way is safe now, it won't be anymore
+ * after thread-support is added to the kernel. For example, a thread might
+ * work with given handle while another closes it.
+ *
+ * TODO: introduce a ref-count in the fs_base_handle struct and function like
+ * put_fs_handle() or rename both to something like acquire/release_fs_handle.
+ */
+fs_handle get_fs_handle(int fd)
+{
+   fs_handle handle = NULL;
+   struct task *curr = get_curr_task();
+
+   kmutex_lock(&curr->pi->fslock);
+
+   if (is_fd_in_valid_range(fd) && curr->pi->handles[fd])
+      handle = curr->pi->handles[fd];
+
+   kmutex_unlock(&curr->pi->fslock);
+   return handle;
+}
+
+
+int sys_open(const char *u_path, int flags, mode_t mode)
+{
+   int ret, free_fd;
+   size_t written = 0;
+   fs_handle h = NULL;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   STATIC_ASSERT((ARGS_COPYBUF_SIZE / 2) >= MAX_PATH);
+
+   /*
+    * NOTE: O_DIRECT for regular files (not pipes!) is supported out-of-the-box
+    * because Tilck has no I/O cache.
+    */
+
+   if (flags & O_ASYNC)
+      return -EINVAL;
+
+   if ((flags & O_TMPFILE) == O_TMPFILE)
+      return -EOPNOTSUPP; /* TODO: Tilck does not support O_TMPFILE yet */
+
+   /* Apply the umask upfront */
+   mode &= ~curr->pi->umask;
+
+   if ((ret = duplicate_user_path(path, u_path, MAX_PATH, &written)))
+      return ret;
+
+   kmutex_lock(&curr->pi->fslock);
+
+   if ((free_fd = get_free_handle_num(curr->pi)) < 0)
+      goto no_fds;
+
+   if ((ret = vfs_open(path, &h, flags, mode)) < 0)
+      goto end;
+
+   ASSERT(h != NULL);
+
+   curr->pi->handles[free_fd] = h;
+   curr->pi->fd_flags[free_fd] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+   ret = free_fd;
+
+end:
+   kmutex_unlock(&curr->pi->fslock);
+   return ret;
+
+no_fds:
+   ret = -EMFILE;
+   goto end;
+}
+
+long sys_openat(int dfd, const char *u_path, int flags, mode_t mode)
+{
+   // TODO: Add full support for openat()
+
+   if (dfd == AT_FDCWD)
+      return sys_open(u_path, flags, mode);
+
+   return -ENOSYS;
+}
+
+int sys_creat(const char *u_path, mode_t mode)
+{
+   return sys_open(u_path, O_CREAT | O_WRONLY | O_TRUNC, mode);
+}
+
+int sys_unlink(const char *u_path)
+{
+   int ret;
+   size_t written = 0;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   if ((ret = duplicate_user_path(path, u_path, MAX_PATH, &written)))
+      return ret;
+
+   return vfs_unlink(path);
+}
+
+long sys_unlinkat(int dfd, const char *pathname, int flag)
+{
+   //TODO: Add support for fully unlinkat() features
+
+   if (dfd == AT_FDCWD && flag == 0)
+      return sys_unlink(pathname);
+
+   if (dfd == AT_FDCWD && flag == AT_REMOVEDIR)
+      return sys_rmdir(pathname);
+
+   return -ENOSYS;
+}
+
+int sys_rmdir(const char *u_path)
+{
+   int ret;
+   size_t written = 0;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   if ((ret = duplicate_user_path(path, u_path, MAX_PATH, &written)))
+      return ret;
+
+   return vfs_rmdir(path);
+}
+
+int sys_close(int fd)
+{
+   fs_handle handle;
+   int ret = 0;
+   struct task *curr = get_curr_task();
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   kmutex_lock(&curr->pi->fslock);
+   {
+      vfs_close(handle);
+      curr->pi->handles[fd] = NULL;
+   }
+   kmutex_unlock(&curr->pi->fslock);
+   return ret;
+}
+
+int sys_mkdir(const char *u_path, mode_t mode)
+{
+   int ret;
+   size_t written = 0;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   /* Apply the umask upfront */
+   mode &= ~curr->pi->umask;
+
+   if ((ret = duplicate_user_path(path, u_path, MAX_PATH, &written)))
+      return ret;
+
+   return vfs_mkdir(path, mode);
+}
+
+long sys_mkdirat(int dfd, const char *pathname, mode_t mode)
+{
+   //TODO: Add support for fully mkdirat() features
+
+   if (dfd == AT_FDCWD)
+      return sys_mkdir(pathname, mode);
+
+   return -ENOSYS;
+}
+
+/* Aegis-V (12-tilck README): S_ISREG of the handle's file */
+static bool is_regular_file(fs_handle h)
+{
+   struct k_stat64 st;
+   return !vfs_fstat64(h, &st) && (st.st_mode & 0170000) == 0100000;
+}
+
+int sys_read(int fd, void *u_buf, size_t count)
+{
+   int ret, rc;
+   struct fs_handle_base *h;
+   struct task *curr = get_curr_task();
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   /*
+    * NOTE:
+    *
+    * From `man 2 read`:
+    *
+    *    On  Linux,  read()  (and similar system calls) will transfer at most
+    *    0x7ffff000 (2,147,479,552) bytes, returning the number of bytes
+    *    actually transferred. (This is true on both 32-bit and 64-bit systems.)
+    *
+    * This means that it's perfectly fine to use `int` instead of ssize_t as
+    * return type of sys_read().
+    */
+
+   count = MIN(count, (size_t)INT32_MAX);
+
+   if (h->spec_flags & VFS_SPFL_NO_USER_COPY) {
+
+      ret = (int) vfs_read(h, u_buf, count);
+
+   } else {
+
+      /*
+       * Aegis-V (12-tilck README): a regular file gets the whole count, in
+       * IO_COPYBUF_SIZE chunks, up to EOF (as Linux); other files at most
+       * one chunk per call, as before.
+       */
+      const bool whole = count > IO_COPYBUF_SIZE && is_regular_file(h);
+      ret = 0;
+
+      do {
+
+         const size_t chunk = MIN(count - (size_t)ret, IO_COPYBUF_SIZE);
+         int n = (int) vfs_read(h, curr->io_copybuf, chunk);
+
+         if (n > 0) {
+            rc = copy_to_user((char *)u_buf + ret, curr->io_copybuf, (size_t)n);
+            if (rc < 0) {
+               // Do we have to rewind the stream in this case? I don't think so.
+               n = rc;
+            }
+         }
+
+         if (n <= 0) {
+            if (!ret)
+               ret = n;
+            break;
+         }
+
+         ret += n;
+
+         if ((size_t)n < chunk)
+            break;
+
+      } while (whole && (size_t)ret < count);
+   }
+
+   return ret;
+}
+
+int sys_write(int fd, const void *u_buf, size_t count)
+{
+   struct fs_handle_base *h;
+   int ret;
+   struct task *curr = get_curr_task();
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   count = MIN(count, (size_t)INT32_MAX);
+
+   if (h->spec_flags & VFS_SPFL_NO_USER_COPY) {
+
+      ret = (int)vfs_write(h, (void *)u_buf, count);
+
+   } else {
+
+      /*
+       * Aegis-V: every file takes the whole count, chunk by chunk, until a
+       * chunk is written short: a regular file as in sys_read(), a blocking
+       * pipe (pipe_write() waits for room) or a tty as POSIX asks.
+       */
+      const bool whole = count > IO_COPYBUF_SIZE;
+      ret = 0;
+
+      do {
+
+         const size_t chunk = MIN(count - (size_t)ret, IO_COPYBUF_SIZE);
+         int n;
+
+         if (!copy_from_user(curr->io_copybuf, (const char *)u_buf + ret, chunk))
+            n = (int)vfs_write(h, (char *)curr->io_copybuf, chunk);
+         else
+            n = -EFAULT;
+
+         if (n <= 0) {
+            if (!ret)
+               ret = n;
+            break;
+         }
+
+         ret += n;
+
+         if ((size_t)n < chunk)
+            break;
+
+      } while (whole && (size_t)ret < count);
+   }
+
+   return ret;
+}
+
+int sys_pread64(int fd, void *u_buf, size_t count, s64 off)
+{
+   int ret, rc;
+   struct fs_handle_base *h;
+   struct task *curr = get_curr_task();
+
+   if (off < 0 || off > OFFT_MAX)
+      return -EINVAL;
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   count = MIN(count, (size_t)INT32_MAX);
+
+   if (h->spec_flags & VFS_SPFL_NO_USER_COPY) {
+
+      ret = (int) vfs_pread(h, u_buf, count, (offt)off);
+
+   } else {
+
+      count = MIN(count, IO_COPYBUF_SIZE);
+      ret = (int) vfs_pread(h, curr->io_copybuf, count, (offt)off);
+
+      if (ret > 0) {
+         if ((rc = copy_to_user(u_buf, curr->io_copybuf, (size_t)ret))) {
+            // Do we have to rewind the stream in this case? I don't think so.
+            ret = rc;
+         }
+      }
+   }
+
+   return ret;
+}
+
+int sys_pwrite64(int fd, const void *u_buf, size_t count, s64 off)
+{
+   struct fs_handle_base *h;
+   int ret;
+   struct task *curr = get_curr_task();
+
+   if (off < 0 || off > OFFT_MAX)
+      return -EINVAL;
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   count = MIN(count, (size_t)INT32_MAX);
+
+   if (h->spec_flags & VFS_SPFL_NO_USER_COPY) {
+
+      ret = (int)vfs_pwrite(h, (void *)u_buf, count, (offt)off);
+
+   } else {
+
+      count = MIN(count, IO_COPYBUF_SIZE);
+
+      if (!copy_from_user(curr->io_copybuf, u_buf, count))
+         ret = (int)vfs_pwrite(h, (char *)curr->io_copybuf, count, (offt)off);
+      else
+         ret = -EFAULT;
+   }
+
+   return ret;
+}
+
+int sys_ioctl(int fd, ulong request, void *argp)
+{
+   fs_handle handle = get_fs_handle(fd);
+
+   if (!handle)
+      return -EBADF;
+
+   return vfs_ioctl(handle, request, argp);
+}
+
+static bool iov_len_overflow(const struct iovec *iov, int iovcnt)
+{
+   ssize_t tot_len = 0;
+
+   for (int i = 0; i < iovcnt; i++) {
+
+      tot_len += iov[i].iov_len;
+
+      if (tot_len < 0)
+         return true; /* overflow detected */
+   }
+
+   return false;
+}
+
+int sys_writev(int fd, const struct iovec *u_iov, int u_iovcnt)
+{
+   fs_handle handle;
+   const u32 iovcnt = (u32) u_iovcnt;
+   struct task *curr = get_curr_task();
+   struct iovec *iov = (void *)curr->args_copybuf;
+
+   if (u_iovcnt <= 0)
+      return -EINVAL;
+
+   if (sizeof(struct iovec) * iovcnt > ARGS_COPYBUF_SIZE)
+      return -EINVAL;
+
+   if (copy_from_user(iov, u_iov, sizeof(struct iovec) * iovcnt))
+      return -EFAULT;
+
+   if (iov_len_overflow(iov, u_iovcnt))
+      return -EINVAL;
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   return (int)vfs_writev(handle, iov, u_iovcnt);
+}
+
+int sys_readv(int fd, const struct iovec *u_iov, int u_iovcnt)
+{
+   fs_handle handle;
+   const u32 iovcnt = (u32) u_iovcnt;
+   struct task *curr = get_curr_task();
+   struct iovec *iov = (void *)curr->args_copybuf;
+
+   if (u_iovcnt <= 0)
+      return -EINVAL;
+
+   if (sizeof(struct iovec) * iovcnt > ARGS_COPYBUF_SIZE)
+      return -EINVAL;
+
+   if (copy_from_user(iov, u_iov, sizeof(struct iovec) * iovcnt))
+      return -EFAULT;
+
+   if (iov_len_overflow(iov, u_iovcnt))
+      return -EINVAL;
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   return (int)vfs_readv(handle, iov, u_iovcnt);
+}
+
+static int
+call_vfs_stat64(const char *u_path,
+                struct k_stat64 *u_statbuf,
+                bool res_last_sl)
+{
+   struct k_stat64 statbuf;
+   int rc = 0;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   rc = copy_str_from_user(path, u_path, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   if ((rc = vfs_stat64(path, &statbuf, res_last_sl)))
+      return rc;
+
+   if ((rc = copy_to_user(u_statbuf, &statbuf, sizeof(struct k_stat64))))
+      return rc;
+
+   return rc;
+}
+
+int sys_stat64(const char *u_path, struct k_stat64 *u_statbuf)
+{
+   return call_vfs_stat64(u_path, u_statbuf, true);
+}
+
+int sys_lstat64(const char *u_path, struct k_stat64 *u_statbuf)
+{
+   return call_vfs_stat64(u_path, u_statbuf, false);
+}
+
+int sys_fstat64(int fd, struct k_stat64 *u_statbuf)
+{
+   struct k_stat64 statbuf;
+   fs_handle h;
+   int rc = 0;
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   if ((rc = vfs_fstat64(h, &statbuf)))
+      return rc;
+
+   if ((rc = copy_to_user(u_statbuf, &statbuf, sizeof(struct k_stat64))))
+      return rc;
+
+   return rc;
+}
+
+long sys_fstatat64(int dfd, const char *filename,
+                        struct k_stat64 *statbuf, int flag)
+{
+   // TODO: Add support for fully fstatat() features
+
+   if (dfd == AT_FDCWD && flag == AT_SYMLINK_NOFOLLOW)
+      return sys_lstat64(filename, statbuf);
+
+   if (dfd == AT_FDCWD && flag == 0)
+      return sys_stat64(filename, statbuf);
+
+   if (flag == AT_EMPTY_PATH && filename[0] == 0)
+      return sys_fstat64(dfd, statbuf);
+
+   return -ENOSYS;
+}
+
+int sys_symlink(const char *u_target, const char *u_linkpath)
+{
+   int rc = 0;
+   struct task *curr     = get_curr_task();
+   char *target        = curr->args_copybuf + (ARGS_COPYBUF_SIZE / 4) * 0;
+   char *linkpath      = curr->args_copybuf + (ARGS_COPYBUF_SIZE / 4) * 1;
+
+   STATIC_ASSERT(ARGS_COPYBUF_SIZE / 4 >= MAX_PATH);
+
+   rc = copy_str_from_user(target, u_target, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   rc = copy_str_from_user(linkpath, u_linkpath, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   if (!*target || !*linkpath)
+      return -ENOENT; /* target or linkpath is an empty string */
+
+   return vfs_symlink(target, linkpath);
+}
+
+long sys_symlinkat(const char *u_oldname,
+                   int newdfd, const char *u_newname)
+{
+   //TODO: Add support for fully symlinkat() features
+
+   if (newdfd == AT_FDCWD)
+      return sys_symlink(u_oldname, u_newname);
+
+   return -ENOSYS;
+}
+
+int sys_readlink(const char *u_pathname, char *u_buf, size_t u_bufsize)
+{
+   size_t ret_bs;
+   int rc;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf + (ARGS_COPYBUF_SIZE / 4) * 0;
+   char *buf       = curr->args_copybuf + (ARGS_COPYBUF_SIZE / 4) * 1;
+
+   STATIC_ASSERT(ARGS_COPYBUF_SIZE / 4 >= MAX_PATH);
+
+   rc = copy_str_from_user(path, u_pathname, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   rc = vfs_readlink(path, buf);
+
+   if (rc < 0)
+      return rc;
+
+   ret_bs = (size_t) rc;
+   rc = copy_to_user(u_buf, buf, MIN(ret_bs, u_bufsize));
+
+   if (rc < 0)
+      return rc;
+
+   return (int) ret_bs;
+}
+
+long sys_readlinkat(int dfd, const char *u_pathname,
+                    char *u_buf, size_t u_bufsize)
+{
+   //TODO: Add support for fully readlinkat() features
+
+   if (dfd == AT_FDCWD)
+      return sys_readlink(u_pathname, u_buf, u_bufsize);
+
+   return -ENOSYS;
+}
+
+int sys_ia32_truncate64(const char *u_path, s64 len)
+{
+   int rc;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   if (len < 0)
+      return -EINVAL;
+
+   rc = copy_str_from_user(path, u_path, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   // NOTE: truncating the 64-bit length to a pointer-size integer
+   return vfs_truncate(path, (offt)len);
+}
+
+int sys_ia32_ftruncate64(int fd, s64 len)
+{
+   fs_handle h;
+
+   if (!(h = get_fs_handle(fd)))
+      return -EBADF;
+
+   // NOTE: truncating the 64-bit length to a pointer-size integer
+   return vfs_ftruncate(h, (offt)len);
+}
+
+int sys_llseek(int fd, size_t off_hi, size_t off_low, u64 *u_result, u32 whence)
+{
+   fs_handle handle;
+   offt new_off;
+   u64 res;
+   int rc;
+   const s64 off64 = (s64)(((u64)off_hi << 32) | off_low);
+
+   STATIC_ASSERT(sizeof(new_off) >= sizeof(offt));
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   if (sizeof(off64) > sizeof(offt)) {
+
+      /*
+       * Check if we can handle such an offset. See the definition of `offt`
+       * for comments about that.
+       */
+      if (off64 < INT32_MIN || off64 > INT32_MAX)
+         return -EINVAL;
+   }
+
+   new_off = vfs_seek(handle, (offt)off64, (int)whence);
+
+   if (new_off < 0)
+      return (int) new_off; /* return back vfs_seek's error */
+
+   res = (u64)new_off;
+
+   if ((rc = copy_to_user(u_result, &res, sizeof(res))))
+      return rc;
+
+   return 0;
+}
+
+long sys_lseek(int fd, offt offset, u32 whence)
+{
+   fs_handle handle;
+   offt new_off;
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   new_off = vfs_seek(handle, offset, (int)whence);
+   return (long)new_off;
+}
+
+int sys_getdents64(int fd, struct linux_dirent64 *u_dirp, u32 buf_size)
+{
+   fs_handle handle;
+
+   if (!(handle = get_fs_handle(fd)))
+      return -EBADF;
+
+   return vfs_getdents64(handle, u_dirp, buf_size);
+}
+
+/*
+ * Aegis-V (12-tilck README): access() checks the file, as Linux does for
+ * root (every process is uid 0 here): the file must exist; R_OK and W_OK
+ * always pass; X_OK needs at least one x bit, except for a directory. Was:
+ * always 0 (`test -x` was true for every path).
+ */
+static int do_access(int dfd, const char *u_path, int mode)
+{
+   struct k_stat64 statbuf;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+   int rc;
+
+   if (mode & ~(R_OK | W_OK | X_OK))
+      return -EINVAL;
+
+   rc = copy_str_from_user(path, u_path, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   if (dfd != AT_FDCWD && path[0] != '/')
+      return -ENOSYS;   /* as the other *at() calls here */
+
+   if ((rc = vfs_stat64(path, &statbuf, true)))
+      return rc;
+
+   if ((mode & X_OK) && !S_ISDIR(statbuf.st_mode) && !(statbuf.st_mode & 0111))
+      return -EACCES;
+
+   return 0;
+}
+
+int sys_access(const char *u_path, mode_t mode)
+{
+   return do_access(AT_FDCWD, u_path, (int)mode);
+}
+
+long sys_faccessat(int dfd, const char *u_path, int mode)
+{
+   return do_access(dfd, u_path, mode);
+}
+
+/*
+ * NOTE: on Tilck, this syscall _can_ return -ENOMEM, while Linux would return
+ * -EBADF or -EMFILE in the same case. See the comment below.
+ */
+int sys_dup2(int oldfd, int newfd)
+{
+   int rc;
+   fs_handle old_h, new_h;
+   struct task *curr = get_curr_task();
+
+   if (!is_fd_in_valid_range(oldfd))
+      return -EBADF;
+
+   if (!is_fd_in_valid_range(newfd))
+      return -EBADF;
+
+   if (newfd == oldfd)
+      return -EINVAL;
+
+   kmutex_lock(&curr->pi->fslock);
+
+   if (!(old_h = get_fs_handle(oldfd))) {
+      rc = -EBADF;
+      goto out;
+   }
+
+   new_h = get_fs_handle(newfd);
+
+   if (new_h) {
+
+      /*
+       * CORNER CASE: In general, the new handle should be available, but the
+       * linux kernel allows the user code to pass also an IN-USE handle: in
+       * that case the behavior is to just silently close that handle, before
+       * reusing it.
+       */
+      vfs_close(new_h);
+      new_h = NULL;
+   }
+
+   if ((rc = vfs_dup(old_h, &new_h))) {
+
+      /*
+       * if (rc == -ENOMEM)
+       *    rc = -EBADF;
+       *
+       * [BE_NICE] Creating a new file handle means allocating memory, no matter
+       * if that happens every time like in Tilck or it's deferred using a sort
+       * of dynamic array like the Linux kernel does. A memory allocation can
+       * always fail, even when that's highly unlikely. In such cases, the
+       * kernel _must_ return -ENOMEM.
+       *
+       * Unfortunately, according to the POSIX standard dup() and dup2() cannot
+       * fail with -ENOMEM. Just, it's not part of the POSIX interface and it's
+       * not clear to me why. In the Linux kernel, in the out-of-memory case,
+       * dup() returns -EMFILE while dup2() returns -EBADF.
+       *
+       * Tilck tries to be more honest and returns -ENOMEM.
+       */
+      goto out;
+   }
+
+   curr->pi->handles[newfd] = new_h;
+   curr->pi->fd_flags[newfd] = 0;   /* Aegis-V: FD_CLOEXEC is per fd */
+   rc = newfd;
+
+out:
+   kmutex_unlock(&curr->pi->fslock);
+   return rc;
+}
+
+long sys_dup3(int oldfd, int newfd, int flags)
+{
+   //TODO: Add support for fully dup3() features
+
+   if (!flags)
+      return sys_dup2(oldfd, newfd);
+
+   return -ENOSYS;
+}
+
+int sys_dup(int oldfd)
+{
+   int rc = -EMFILE, free_fd;
+   struct process *pi = get_curr_proc();
+
+   kmutex_lock(&pi->fslock);
+   {
+      free_fd = get_free_handle_num(pi);
+
+      if (is_fd_in_valid_range(free_fd))
+         rc = sys_dup2(oldfd, free_fd);
+   }
+   kmutex_unlock(&pi->fslock);
+   return rc;
+}
+
+static void debug_print_fcntl_command(int cmd)
+{
+   switch (cmd) {
+
+      case F_DUPFD:
+         printk("fcntl: F_DUPFD\n");
+         break;
+      case F_DUPFD_CLOEXEC:
+         printk("fcntl: F_DUPFD_CLOEXEC\n");
+         break;
+      case F_GETFD:
+         printk("fcntl: F_GETFD\n");
+         break;
+      case F_SETFD:
+         printk("fcntl: F_SETFD\n");
+         break;
+      case F_GETFL:
+         printk("fcntl: F_GETFL\n");
+         break;
+      case F_SETFL:
+         printk("fcntl: F_SETFL\n");
+         break;
+      case F_SETLK:
+         printk("fcntl: F_SETLK\n");
+         break;
+      case F_SETLKW:
+         printk("fcntl: F_SETLKW\n");
+         break;
+      case F_GETLK:
+         printk("fcntl: F_GETLK\n");
+         break;
+
+      /* Skipping several other commands */
+
+      default:
+         printk("fcntl: unknown command\n");
+   }
+}
+
+void close_cloexec_handles(struct process *pi)
+{
+   kmutex_lock(&pi->fslock);
+
+   for (u32 i = 0; i < KRN_MAX_HANDLES; i++) {
+
+      struct fs_handle_base *h = pi->handles[i];
+
+      if (h && (pi->fd_flags[i] & FD_CLOEXEC)) {
+         vfs_close(h);
+         pi->handles[i] = NULL;
+         pi->fd_flags[i] = 0;
+      }
+   }
+
+   kmutex_unlock(&pi->fslock);
+}
+
+int sys_fcntl64(int fd, int cmd, int arg)
+{
+   struct fs_handle_base *hb;
+   int rc = 0;
+   struct task *curr = get_curr_task();
+
+   if (!(hb = get_fs_handle(fd)))
+      return -EBADF;
+
+   switch (cmd) {
+
+      case F_DUPFD:
+         {
+            kmutex_lock(&curr->pi->fslock);
+            const int new_fd = get_free_handle_num_ge(curr->pi, arg);
+            rc = sys_dup2(fd, new_fd);
+            kmutex_unlock(&curr->pi->fslock);
+            return rc;
+         }
+
+      case F_DUPFD_CLOEXEC:
+         {
+            kmutex_lock(&curr->pi->fslock);
+            const int new_fd = get_free_handle_num_ge(curr->pi, arg);
+            if ((rc = sys_dup2(fd, new_fd)) >= 0) {
+               /* dup2 succeeded (Aegis-V: it returns new_fd, not 0) */
+               curr->pi->fd_flags[rc] = FD_CLOEXEC;
+            }
+            kmutex_unlock(&curr->pi->fslock);
+            return rc;
+         }
+
+      case F_SETFD:
+         curr->pi->fd_flags[fd] = arg & FD_CLOEXEC;   /* Aegis-V: per fd */
+         break;
+
+      case F_GETFD:
+         return curr->pi->fd_flags[fd];
+
+      case F_SETFL:
+
+         /*
+          * In general, O_DIRECT is implicitly supported by Tilck, but for
+          * pipes O_DIRECT has a different meaning: it makes the pipes to work
+          * in a "packet" mode, which is not supported by Tilck, at the moment.
+          *
+          * Therefore, in order to avoid debugging weird stuff, while in
+          * development, just crash the kernel with NOT_IMPLEMENTED() making the
+          * problem evident. At some point, all the NOT_IMPLEMENTED() statements
+          * will need to be replaced somehow for non-dev builds, where crashing
+          * is certainly not acceptable.
+          */
+
+         if (arg & (O_ASYNC | O_DIRECT))
+            NOT_IMPLEMENTED();
+
+         const int unchangeable = hb->fl_flags & ~FCNTL_CHANGEABLE_FL;
+         hb->fl_flags = (arg & FCNTL_CHANGEABLE_FL) | unchangeable;
+         break;
+
+      case F_GETFL:
+         return hb->fl_flags;
+
+      default:
+         printk("fcntl64: Ignored unknown cmd %d\n", cmd);
+   }
+
+   return rc;
+}
+
+static int
+do_chown(const char *u_path, int owner, int group, bool reslink)
+{
+   int rc;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   rc = copy_str_from_user(path, u_path, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   return vfs_chown(path, owner, group, reslink);
+}
+
+int sys_chown(const char *u_path, int owner, int group)
+{
+   return do_chown(u_path, owner, group, true);
+}
+
+int sys_lchown(const char *u_path, int owner, int group)
+{
+   return do_chown(u_path, owner, group, false);
+}
+
+int sys_fchown(int fd, uid_t owner, gid_t group)
+{
+   struct fs_handle_base *hb = get_fs_handle(fd);
+
+   if (!hb)
+      return -EBADF;
+
+   if (!(hb->fs->flags & VFS_FS_RW))
+      return -EROFS;
+
+   /* Aegis-V: as vfs_chown_impl() (root; no owner stored) */
+   return 0;
+}
+
+long sys_fchownat(int dfd, const char *u_path,
+                  int user, int group, int flag)
+{
+   //TODO: Add support for fully fchownat() features
+   if (dfd != AT_FDCWD)
+      return -ENOSYS;
+
+   if (flag == 0)
+      return sys_chown(u_path, user, group);
+
+   if (flag == AT_SYMLINK_NOFOLLOW)
+      return sys_lchown(u_path, user, group);
+
+   return -ENOSYS;
+}
+
+int sys_fsync(int fd)
+{
+   struct fs_handle_base *hb = get_fs_handle(fd);
+
+   if (!hb)
+      return -EBADF;
+
+   return vfs_fsync(hb);
+}
+
+int sys_fdatasync(int fd)
+{
+   struct fs_handle_base *hb = get_fs_handle(fd);
+
+   if (!hb)
+      return -EBADF;
+
+   return vfs_fsync(hb);
+}
+
+int sys_syncfs(int fd)
+{
+   struct fs_handle_base *hb = get_fs_handle(fd);
+
+   if (!hb)
+      return -EBADF;
+
+   vfs_syncfs(hb->fs);
+   return 0;
+}
+
+int sys_sync(void)
+{
+   vfs_sync();
+   return 0;
+}
+
+int sys_chmod(const char *u_path, mode_t mode)
+{
+   int rc;
+   struct task *curr = get_curr_task();
+   char *path = curr->args_copybuf;
+
+   rc = copy_str_from_user(path, u_path, MAX_PATH, NULL);
+
+   if (rc < 0)
+      return -EFAULT;
+
+   if (rc > 0)
+      return -ENAMETOOLONG;
+
+   return vfs_chmod(path, mode);
+}
+
+int sys_fchmod(int fd, mode_t mode)
+{
+   struct fs_handle_base *hb;
+   hb = get_fs_handle(fd);
+
+   if (!hb)
+      return -EBADF;
+
+   if (!(hb->fs->flags & VFS_FS_RW))
+      return -EROFS;
+
+   return vfs_fchmod(hb, mode);
+}
+
+long sys_fchmodat(int dfd, const char *u_path, mode_t mode)
+{
+   //TODO: Add support for fully fchmodat() features
+
+   if (dfd == AT_FDCWD)
+      return sys_chmod(u_path, mode);
+
+   return -ENOSYS;
+}
+
+static int
+call_rename_or_link(const char *u_oldpath,
+                    const char *u_newpath,
+                    int (*vfs_func)(const char *, const char *))
+{
+   int rc1, rc2;
+   struct task *curr = get_curr_task();
+   char *oldpath = curr->args_copybuf;
+   char *newpath = curr->args_copybuf + MAX_PATH;
+
+   STATIC_ASSERT(ARGS_COPYBUF_SIZE >= 2 * MAX_PATH);
+
+   rc1 = copy_str_from_user(oldpath, u_oldpath, MAX_PATH, NULL);
+   rc2 = copy_str_from_user(newpath, u_newpath, MAX_PATH, NULL);
+
+   if (rc1 < 0 || rc2 < 0)
+      return -EFAULT;
+
+   if (rc1 > 0 || rc2 > 0)
+      return -ENAMETOOLONG;
+
+   return vfs_func(oldpath, newpath);
+}
+
+int sys_rename(const char *u_oldpath, const char *u_newpath)
+{
+   return call_rename_or_link(u_oldpath, u_newpath, &vfs_rename);
+}
+
+long sys_renameat2(int olddfd, const char *oldname,
+                   int newdfd, const char *newname, u32 flags)
+{
+   //TODO: Add support for fully renameat2() features
+
+   if (olddfd == AT_FDCWD && newdfd == AT_FDCWD && !flags)
+      return sys_rename(oldname, newname);
+
+   return -ENOSYS;
+}
+
+int sys_link(const char *u_oldpath, const char *u_newpath)
+{
+   return call_rename_or_link(u_oldpath, u_newpath, &vfs_link);
+}
+
+long sys_linkat(int olddfd, const char *oldname,
+                int newdfd, const char *newname, int flags)
+{
+   //TODO: Add support for fully linkat() features
+
+   if (olddfd == AT_FDCWD && newdfd == AT_FDCWD && !flags)
+      return sys_link(oldname, newname);
+
+   return -ENOSYS;
+}
+
+int sys_pipe(int u_pipefd[2])
+{
+   return sys_pipe2(u_pipefd, 0);
+}
+
+int sys_pipe2(int u_pipefd[2], int flags)
+{
+   int fds[2];
+   struct fs_handle_base *read_h = NULL;
+   struct fs_handle_base *write_h = NULL;
+   struct pipe *p = NULL;
+   int ret = 0;
+   struct task *curr = get_curr_task();
+
+   if (flags & O_DIRECT)
+      return -EINVAL;
+
+   if (flags & O_NONBLOCK)
+      return -EINVAL;
+
+   kmutex_lock(&curr->pi->fslock);
+
+   if (!(p = create_pipe())) {
+
+      /*
+       * [BE_NICE] According to the POSIX standard, pipe() cannot fail with
+       * -ENOMEM. However, it can fail with -ENFILE or -EMFILE, both of which
+       * are about numeric limits, system-wide or per-process, it doesn't
+       * matter. Also -ENFILE might mean, according to POSIX, that:
+       *
+       * << The user hard limit on memory that can be allocated for pipes has
+       *    been reached and the caller is not privileged. >>
+       *
+       * That implies that there _must be_ such a hard limit and, because we
+       * cannot fail with -ENOMEM, such memory for pipes must be also allocated
+       * in advance, which is very bad practically.
+       *
+       * The situation is similar to the case of dup() and dup2() [see the
+       * comment in sys_dup2()] and what the Linux kernel does in case of real
+       * out-of-memory it's simply lying by failing with -ENFILE here.
+       *
+       * Tilck tries to be more honest even at the price of breaking a little
+       * the POSIX standard, by returning -ENOMEM here.
+       */
+      goto no_mem;
+   }
+
+   if ((fds[0] = get_free_handle_num(curr->pi)) < 0)
+      goto no_fds;
+
+   if (!(read_h = pipe_create_read_handle(p)))
+      goto fault;
+
+   curr->pi->handles[fds[0]] = read_h;
+
+   if ((fds[1] = get_free_handle_num(curr->pi)) < 0)
+      goto no_fds;
+
+   if (!(write_h = pipe_create_write_handle(p)))
+      goto fault;
+
+   curr->pi->handles[fds[1]] = write_h;
+
+   if ((ret = copy_to_user(u_pipefd, fds, sizeof(fds))))
+      goto err_end;
+
+   /* Aegis-V: FD_CLOEXEC is per fd (struct process fd_flags[]) */
+   curr->pi->fd_flags[fds[0]] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+   curr->pi->fd_flags[fds[1]] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+
+end:
+   kmutex_unlock(&curr->pi->fslock);
+   return ret;
+
+err_end:
+
+   if (read_h) {
+      curr->pi->handles[fds[0]] = NULL;
+      kfs_destroy_handle((void *)read_h);
+   }
+
+   if (write_h) {
+      curr->pi->handles[fds[1]] = NULL;
+      kfs_destroy_handle((void *)write_h);
+   }
+
+   if (p) {
+      destroy_pipe(p);
+   }
+
+   goto end;
+
+fault:
+   ret = -EFAULT;
+   goto err_end;
+
+no_mem:
+   ret = -ENOMEM;
+   goto err_end;
+
+no_fds:
+   ret = -EMFILE;
+   goto err_end;
+}
+

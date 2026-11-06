@@ -1,0 +1,25 @@
+/* Kronos /lib/crt.s in standard operand syntax: tcc mob's assembler rejects "ld a0, sp, 0" and "jalr zero, ra, 0". */
+.global _start
+.global main
+.global exit
+.global ecall6
+.global abort
+.global abort_print_ra
+_start:
+	ld a0, 0(sp)
+	addi a1, sp, 8
+	jal ra, main
+	jal ra, exit
+ecall6:
+	mv a7, a0
+	mv a0, a1
+	mv a1, a2
+	mv a2, a3
+	mv a3, a4
+	mv a4, a5
+	mv a5, a6
+	ecall
+	jalr zero, 0(ra)
+abort:
+	mv a0, ra
+	jal ra, abort_print_ra

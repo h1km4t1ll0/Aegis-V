@@ -1,0 +1,81 @@
+# Rung tools2 on Tilck (15-early-tools README). rung-init runs this with
+# kaem --verbose --strict from / ; /initrd is read-only. Same frame as rung
+# tools1 (steps/run.kaem): recipes copied to /steps/<pkg>, distfiles to
+# ramfs, live-bootstrap's pkg=NAME, cd ${pkg}, kaem --file pass1.kaem, cd ..
+
+# 1. /steps/<pkg>/ from /initrd/steps/<pkg>/, one file per cp
+mkdir -p /steps/coreutils-5.0/mk /steps/coreutils-5.0/patches
+cp /initrd/steps/coreutils-5.0/pass1.kaem /steps/coreutils-5.0/pass1.kaem
+cp /initrd/steps/coreutils-5.0/sources /steps/coreutils-5.0/sources
+cp /initrd/steps/coreutils-5.0/mk/main.mk /steps/coreutils-5.0/mk/main.mk
+cp /initrd/steps/coreutils-5.0/patches/modechange.patch /steps/coreutils-5.0/patches/modechange.patch
+cp /initrd/steps/coreutils-5.0/patches/mbstate.patch /steps/coreutils-5.0/patches/mbstate.patch
+cp /initrd/steps/coreutils-5.0/patches/ls-strcmp.patch /steps/coreutils-5.0/patches/ls-strcmp.patch
+cp /initrd/steps/coreutils-5.0/patches/touch-getdate.patch /steps/coreutils-5.0/patches/touch-getdate.patch
+cp /initrd/steps/coreutils-5.0/patches/touch-dereference.patch /steps/coreutils-5.0/patches/touch-dereference.patch
+cp /initrd/steps/coreutils-5.0/patches/tac-uint64.patch /steps/coreutils-5.0/patches/tac-uint64.patch
+cp /initrd/steps/coreutils-5.0/patches/expr-strcmp.patch /steps/coreutils-5.0/patches/expr-strcmp.patch
+cp /initrd/steps/coreutils-5.0/patches/sort-locale.patch /steps/coreutils-5.0/patches/sort-locale.patch
+cp /initrd/steps/coreutils-5.0/patches/uniq-fopen.patch /steps/coreutils-5.0/patches/uniq-fopen.patch
+cp /initrd/steps/coreutils-5.0/patches/musl-getline.patch /steps/coreutils-5.0/patches/musl-getline.patch
+cp /initrd/steps/coreutils-5.0/patches/install-no-chown.patch /steps/coreutils-5.0/patches/install-no-chown.patch
+mkdir -p /steps/oyacc-6.6/mk /steps/oyacc-6.6/patches
+cp /initrd/steps/oyacc-6.6/pass1.kaem /steps/oyacc-6.6/pass1.kaem
+cp /initrd/steps/oyacc-6.6/sources /steps/oyacc-6.6/sources
+cp /initrd/steps/oyacc-6.6/mk/main.mk /steps/oyacc-6.6/mk/main.mk
+cp /initrd/steps/oyacc-6.6/patches/tcc.patch /steps/oyacc-6.6/patches/tcc.patch
+mkdir -p /steps/bash-2.05b/mk /steps/bash-2.05b/patches
+cp /initrd/steps/bash-2.05b/pass1.kaem /steps/bash-2.05b/pass1.kaem
+cp /initrd/steps/bash-2.05b/sources /steps/bash-2.05b/sources
+cp /initrd/steps/bash-2.05b/mk/main.mk /steps/bash-2.05b/mk/main.mk
+cp /initrd/steps/bash-2.05b/mk/common.mk /steps/bash-2.05b/mk/common.mk
+cp /initrd/steps/bash-2.05b/mk/builtins.mk /steps/bash-2.05b/mk/builtins.mk
+cp /initrd/steps/bash-2.05b/patches/mes-libc.patch /steps/bash-2.05b/patches/mes-libc.patch
+cp /initrd/steps/bash-2.05b/patches/tinycc.patch /steps/bash-2.05b/patches/tinycc.patch
+cp /initrd/steps/bash-2.05b/patches/missing-defines.patch /steps/bash-2.05b/patches/missing-defines.patch
+cp /initrd/steps/bash-2.05b/patches/locale.patch /steps/bash-2.05b/patches/locale.patch
+cp /initrd/steps/bash-2.05b/patches/dev-tty.patch /steps/bash-2.05b/patches/dev-tty.patch
+
+# distfiles to ramfs (Tilck FAT32 lseek(SEEK_END), see steps/run.kaem)
+mkdir -p /distfiles
+cp /initrd/distfiles/coreutils-5.0.tar.bz2 /distfiles/coreutils-5.0.tar.bz2
+cp /initrd/distfiles/oyacc-6.6.tar.gz /distfiles/oyacc-6.6.tar.gz
+cp /initrd/distfiles/bash-2.05b.tar.gz /distfiles/bash-2.05b.tar.gz
+DISTFILES=/distfiles
+
+# 2. the packages, in live-bootstrap's order (steps/manifest)
+cd /steps
+pkg=coreutils-5.0
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=oyacc-6.6
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+pkg=bash-2.05b
+cd ${pkg}
+kaem --file pass1.kaem
+cd ..
+
+# 3. tests: versions, then the two scripts (each prints its mark only if
+# all its checks pass, and exits 1 otherwise)
+ls --version
+bash --version
+mkdir -p /build/sh /build/cu
+cp /initrd/steps/tests/sh-test.sh /build/sh/sh-test.sh
+cp /initrd/steps/tests/coreutils-test.sh /build/cu/coreutils-test.sh
+cd /build/sh
+bash sh-test.sh
+cd /build/cu
+bash coreutils-test.sh
+
+# 4. /usr packed with mkustar into /dev/outbox (as rung tools1, but catm:
+# cp is coreutils' now, whose sparse-file logic may lseek on the device)
+cd /
+filelist /build/usr.list usr
+mkustar /build/rootfs.tar . /build/usr.list
+catm /dev/outbox /build/rootfs.tar
+sha256sum -o /build/rootfs.sum /build/rootfs.tar
+catm /dev/console /initrd/steps/sha256-prefix /build/rootfs.sum
+echo rung done tools2

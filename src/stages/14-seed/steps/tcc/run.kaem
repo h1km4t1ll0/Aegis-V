@@ -1,0 +1,46 @@
+# Rung tcc on Tilck (14-seed README, "Rung tcc"). rung-init runs this with
+# kaem --verbose --strict from / ; /initrd is read-only, the work is in /build.
+# /initrd/steps/tcc-mob/: tcc mob's TCCM_SRC with stage 11's overrides, our
+# config.h, lib/ (the LIBTCC1 sources); planted by tilck.py.
+
+mkdir -p /build/tcc-m2 /build/tcc-m3 /build/libtcc1
+
+# 1. tcc-m (the seed's /usr/bin/tcc): hello with musl
+tcc -static -o /build/hello /initrd/steps/hello.c
+/build/hello
+
+# 2. tcc-m -> tcc-m2 -> tcc-m3 (same sources, same flags as the seed's tcc-m)
+tcc -static -DONE_SOURCE=1 -o /build/tcc-m2/tcc /initrd/steps/tcc-mob/tcc.c
+/build/tcc-m2/tcc -static -DONE_SOURCE=1 -o /build/tcc-m3/tcc /initrd/steps/tcc-mob/tcc.c
+# cmp: the sum of tcc-m2 checked against tcc-m3 (relative name "tcc")
+cd /build/tcc-m2
+sha256sum -o /build/tcc-m2.sum tcc
+cd /build/tcc-m3
+sha256sum -c /build/tcc-m2.sum
+echo tccm fixed ok
+
+# 3. tcc-m3 becomes /usr/bin/tcc; libtcc1.a rebuilt by it
+cp /build/tcc-m3/tcc ${BINDIR}/tcc
+chmod 755 ${BINDIR}/tcc
+cd /build/libtcc1
+tcc -c -o lib-arm64.o /initrd/steps/tcc-mob/lib/lib-arm64.c
+tcc -c -o stdatomic.o /initrd/steps/tcc-mob/lib/stdatomic.c
+tcc -c -o atomic.o /initrd/steps/tcc-mob/lib/atomic.S
+tcc -c -o builtin.o /initrd/steps/tcc-mob/lib/builtin.c
+tcc -c -o alloca.o /initrd/steps/tcc-mob/lib/alloca.S
+tcc -c -o alloca-bt.o /initrd/steps/tcc-mob/lib/alloca-bt.S
+tcc -c -o armflush.o /initrd/steps/tcc-mob/lib/armflush.c
+tcc -c -o dsohandle.o /initrd/steps/tcc-mob/lib/dsohandle.c
+tcc -c -o tcov.o /initrd/steps/tcc-mob/lib/tcov.c
+tcc -ar rcs ${LIBDIR}/tcc/libtcc1.a lib-arm64.o stdatomic.o atomic.o builtin.o alloca.o alloca-bt.o armflush.o dsohandle.o tcov.o
+
+# 4. filelist (built by the new tcc + libtcc1.a, kept in /usr/bin for the
+# next rungs), then /usr packed with mkustar into /dev/outbox
+tcc -static -o ${BINDIR}/filelist /initrd/steps/filelist.c
+cd /
+filelist /build/usr.list usr
+mkustar /build/rootfs.tar . /build/usr.list
+cp /build/rootfs.tar /dev/outbox
+sha256sum -o /build/rootfs.sum /build/rootfs.tar
+catm /dev/console /initrd/steps/sha256-prefix /build/rootfs.sum
+echo rung done tcc

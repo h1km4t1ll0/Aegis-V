@@ -2383,14 +2383,16 @@ static void gen_cast(CType *type)
                   if (sbt == (VT_LLONG|VT_UNSIGNED))
                     ;
                 else if (sbt & VT_UNSIGNED)
-                    vtop->c.i = (uint32_t)vtop->c.i;
+                    /* zero-extend 32->64 with 64-bit ops only: a riscv64
+                       tcc without the zext below miscompiles (uint32_t) */
+                    vtop->c.i = vtop->c.i << 32 >> 32;
 #if PTR_SIZE == 8
                 else if (sbt == VT_PTR)
                     ;
 #endif
                 else if (sbt != VT_LLONG)
-                    vtop->c.i = ((uint32_t)vtop->c.i |
-                                  -(vtop->c.i & 0x80000000));
+                    vtop->c.i = (vtop->c.i << 32 >> 32 |
+                                  -(vtop->c.i & ((uint64_t)1 << 31)));
 
                 if (dbt == (VT_LLONG|VT_UNSIGNED))
                     ;
@@ -2401,9 +2403,11 @@ static void gen_cast(CType *type)
                     ;
 #endif
                 else if (dbt != VT_LLONG) {
-                    uint32_t m = ((dbt & VT_BTYPE) == VT_BYTE ? 0xff :
+                    /* 64-bit mask: 0xffffffff as uint32_t widens wrong
+                       under a riscv64 tcc without the zext below */
+                    uint64_t m = ((dbt & VT_BTYPE) == VT_BYTE ? 0xff :
                                   (dbt & VT_BTYPE) == VT_SHORT ? 0xffff :
-                                  0xffffffff);
+                                  ((uint64_t)1 << 32) - 1);
                     vtop->c.i &= m;
                     if (!(dbt & VT_UNSIGNED))
                         vtop->c.i |= -(vtop->c.i & ((m >> 1) + 1));
@@ -2483,6 +2487,18 @@ static void gen_cast(CType *type)
 #error
 #endif
                     }
+#if defined(TCC_TARGET_RISCV64)
+                    else {
+                        /* RISC-V keeps 32-bit values sign-extended in
+                           registers, so unsigned int -> 64 bit needs an
+                           explicit zero-extension (mob: trunc = 32). */
+                        vtop->type.t = VT_LLONG | VT_UNSIGNED;
+                        vpushi(32);
+                        gen_op(TOK_SHL);
+                        vpushi(32);
+                        gen_op(TOK_SHR);
+                    }
+#endif
                 }
 #endif
             } else if (dbt == VT_BOOL) {
@@ -3306,8 +3322,17 @@ static void parse_attribute(AttributeDef *ad)
                     ad->a.mode = VT_SHORT + 1;
                     break;
                 case TOK_MODE_SI:
-                case TOK_MODE_word:
                     ad->a.mode = VT_INT + 1;
+                    break;
+                case TOK_MODE_word:
+                    /* GCC __word__ is the register width.  On riscv64 that
+                       is 8 bytes; a 32-bit word makes libcpp's line scanner
+                       miss newlines that are not in the first byte. */
+#ifdef TCC_TARGET_RISCV64
+                    ad->a.mode = VT_LLONG + 1;
+#else
+                    ad->a.mode = VT_INT + 1;
+#endif
                     break;
                 default:
                     tcc_warning("__mode__(%s) not supported\n", get_tok_str(tok, NULL));
@@ -3562,8 +3587,16 @@ static void struct_layout(CType *type, AttributeDef *ad)
 	f->r = 0;
     }
     /* store size and alignment */
-    type->ref->c = (c + (pcc ? (bit_pos + 7) >> 3 : 0)
-		    + maxalign - 1) & -maxalign;
+    {
+	/* PCC keeps the current bit-field run out of c and then adds
+	   only the used bytes.  The store still writes the whole base
+	   type, so a container that starts near the end (line_map's
+	   column_bits) spills into the next object. */
+	int end = c + (pcc ? (bit_pos + 7) >> 3 : 0);
+	if (bit_pos > 0 && offset + size > end)
+	    end = offset + size;
+	type->ref->c = (end + maxalign - 1) & -maxalign;
+    }
     type->ref->r = maxalign;
     if (offset + size > type->ref->c)
         tcc_warning("will touch memory past end of the struct (internal limitation)");
@@ -4265,6 +4298,14 @@ static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td)
     post_type(post, ad, storage, 0);
     if (tok == TOK_ATTRIBUTE1 || tok == TOK_ATTRIBUTE2)
         parse_attribute(ad);
+    /* Attributes after the declarator (typedef unsigned int word_type
+       __attribute__((__mode__(__word__)))) set ad->a.mode but used to
+       leave the base type unchanged. */
+    if (ad->a.mode) {
+        int bt = type->t & VT_BTYPE;
+        if (bt == VT_BYTE || bt == VT_SHORT || bt == VT_INT || bt == VT_LLONG)
+            type->t = (type->t & ~VT_BTYPE) | (ad->a.mode - 1);
+    }
     type->t |= storage;
     return ret;
 }
@@ -5554,7 +5595,23 @@ static void gfunc_return(CType *func_type)
             /* returning structure packed into registers */
             int r, size, addr, align;
             size = type_size(func_type,&align);
-            if ((vtop->r != (VT_LOCAL | VT_LVAL) ||
+            /* ret_align is 1 on riscv, so the old test never copied.
+               A spilled pointer's c.i is the slot of that pointer; adding
+               regsize then reads the next local (converter_for_type returned
+               the type argument instead of the struct's second word). Copy
+               any non-local struct onto the stack first. */
+            if (ret_nregs > 1 &&
+                (vtop->r != (VT_LOCAL | VT_LVAL) || (vtop->c.i & 7))) {
+                int al = align < 8 ? 8 : align;
+                loc = (loc - size) & -al;
+                addr = loc;
+                type = *func_type;
+                vset(&type, VT_LOCAL | VT_LVAL, addr);
+                vswap();
+                vstore();
+                vpop();
+                vset(&ret_type, VT_LOCAL | VT_LVAL, addr);
+            } else if ((vtop->r != (VT_LOCAL | VT_LVAL) ||
                  (vtop->c.i & (ret_align-1)))
                 && (align & (ret_align-1))) {
                 loc = (loc - size) & -ret_align;
@@ -5585,6 +5642,7 @@ static void gfunc_return(CType *func_type)
                        registers, their classes are consecutive values of the
                        suite s(n) = 2^n */
                     r <<= 1;
+                    /* vtop is the local copy (or an already-local struct). */
                     vtop->c.i += regsize;
                 }
             }
