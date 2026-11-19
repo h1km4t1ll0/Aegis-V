@@ -107,8 +107,17 @@ setup_usermode_task_regs(regs_t *r, void *entry, void *stack_addr)
 static inline bool
 is_fpu_enabled_for_task(struct task *ti)
 {
-   return get_task_arch_fields(ti)->fpu_regs &&
-          (ti->state_regs->sstatus & SR_FS);
+   /*
+    * Aegis-V (rung gmp9, 12-tilck README): a task has used the FPU iff it
+    * has a context buffer (the first-use fault or fork() gives it one,
+    * execve() frees it). Upstream also required FS in ti->state_regs, but
+    * a task that blocks in a syscall (wait4, read of a pipe, sched_yield)
+    * has state_regs pointing at its kernel context, where FS is off: its
+    * FPU state was neither saved when it left nor restored when it came
+    * back, and it returned to user mode with the f registers and fcsr of
+    * the task that ran meanwhile.
+    */
+   return get_task_arch_fields(ti)->fpu_regs != NULL;
 }
 
 void

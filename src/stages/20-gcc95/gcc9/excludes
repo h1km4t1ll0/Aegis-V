@@ -1,0 +1,30 @@
+# paxx -s 1 -X excludes for rung gcc9 (20-gcc95 README, rung gcc9 "Source
+# tree"): rung gcc9a's list without gcc/fortran. Stage 1 is a checking
+# compiler and runs GCC's selftests, and opt-suggestions.c's completion
+# test asks for Fortran options (-Warray-temporaries, -Wtarget-lifetime,
+# -Wno-underflow): gcc/configure takes every gcc/LANG/lang.opt there is.
+gcc/testsuite
+!gcc/testsuite/selftests
+libgo
+gotools
+libphobos
+gcc/ada
+libada
+gnattools
+libgfortran
+gcc/objc
+gcc/objcp
+libobjc
+gcc/brig
+libbrig
+libhsail-rt
+libsanitizer
+libvtv
+liboffloadmic
+libgomp
+libitm
+libquadmath
+libstdc++-v3/testsuite/*
+!libstdc++-v3/testsuite/Makefile.in
+*.gmo
+*.info

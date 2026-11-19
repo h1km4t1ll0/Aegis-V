@@ -58,6 +58,8 @@ GMP_DIR = os.path.join(ROOT, "src", "stages", "18-gmp-mpfr-mpc")
 GMP_OUT = artifacts("18-gmp-mpfr-mpc")
 GCC464_DIR = os.path.join(ROOT, "src", "stages", "19-gcc464")
 GCC464_OUT = artifacts("19-gcc464")
+GCC95_DIR = os.path.join(ROOT, "src", "stages", "20-gcc95")
+GCC95_OUT = artifacts("20-gcc95")
 SOURCES = os.path.join(ROOT, "build", "sources")
 BOOTINFO_ADDR = 0x87F00000
 ELF_ADDR = 0x88000000
@@ -113,6 +115,7 @@ TEST_MARKS = (
     "munmappart ok",
     "mremap ok",
     "scriptargs ok",
+    "fpustate ok",
     "outbox sha256 ",
     "tests done",
 )
@@ -422,6 +425,39 @@ def gcc4_step_files():
             + [("steps/src/mkustar.c", open(src, "rb").read())])
 
 
+def gmp9_step_files():
+    """steps/src/paxx.c (20-gcc95/src), steps/gcc9a/excludes (rung gcc9a's
+    list as rung gmp9's trial extraction checked it: src/gmp9-trial-excludes;
+    rung gcc9a keeps more, 20-gcc95 README), stage 13's mkustar.c as
+    steps/src/mkustar.c and rung gcc4's src/mkustar-long.patch for rung
+    gmp9."""
+    def read(*p):
+        return open(os.path.join(*p), "rb").read()
+
+    return [
+        ("steps/src/paxx.c", read(GCC95_DIR, "src", "paxx.c")),
+        ("steps/gcc9a/excludes", read(GCC95_DIR, "src", "gmp9-trial-excludes")),
+        ("steps/src/mkustar.c", read(ROOT, "src", "stages", "13-musl", "src", "mkustar.c")),
+        ("steps/src/mkustar-long.patch", read(GCC464_DIR, "gcc4", "src", "mkustar-long.patch")),
+    ]
+
+
+def gcc9a_step_files():
+    """steps/src/paxx.c (20-gcc95/src), stage 13's mkustar.c as
+    steps/src/mkustar.c and rung gcc4's src/mkustar-long.patch for rung
+    gcc9a (its excludes, tests and patches are in gcc9a/)."""
+    return [(p, b) for p, b in gmp9_step_files() if p != "steps/gcc9a/excludes"]
+
+
+def gcc9_step_files():
+    """gcc9a_step_files() and rung gcc9a's tests/ as steps/tests/ for rung
+    gcc9 (its own run.sh, excludes and src/print.mk are in gcc9/)."""
+    gcc9a = os.path.join(GCC95_DIR, "gcc9a")
+    return gcc9a_step_files() + [
+        (p, b) for p, b in tree_files("steps/", gcc9a) if p.startswith("steps/tests/")
+    ]
+
+
 # --rung NAME. rootfs: the tar unpacked into / (the seed, or the previous
 # rung's rootfs-NAME.tar); steps: its files go to /initrd/steps/ (run.kaem
 # is the script); extra: a function giving more (initrd path, bytes);
@@ -710,6 +746,109 @@ RUNGS = {
         ),
         "timeout": 48 * 3600,
         "out": GCC464_OUT,
+    },
+    # 20-gcc95 README: gcc 4.6.4 builds paxx (tested on its own archive and
+    # on gcc-9.5.0.tar.gz) and gmp 6.1.0, mpfr 3.1.4, mpc 1.0.3 with their
+    # make check into /usr; gmp9/run.kaem runs gmp9/run.sh
+    "gmp9": {
+        "rootfs": os.path.join(GCC464_OUT, "rootfs-gcc4.tar"),
+        "steps": os.path.join(GCC95_DIR, "gmp9"),
+        "extra": gmp9_step_files,
+        "distfiles": (
+            ("gmp-6.1.0.tar.bz2", "498449a994efeba527885c10405993427995d3f86b8768d8cdf8d9dd7c6b73e8"),
+            ("mpfr-3.1.4.tar.bz2", "d3103a80cdad2407ed581f3618c4bed04e0c92d1cf771a65ead662cc397f7775"),
+            ("mpc-1.0.3.tar.gz", "617decc6ea09889fb08ede330917a00b16809b8db88c29c31bfbb49cbf88ecc3"),
+            ("gcc-9.5.0.tar.gz", "15b34072105272a3eb37f6927409f7ce9aa0dd1498efebc35f851d6e6f029a4d"),
+        ),
+        "marks": (
+            "paxx ok",
+            "paxx gcc ok",
+            "gmp configured",
+            "gmp built",
+            "gmp check ok",
+            "gmp installed",
+            "mpfr configured",
+            "mpfr built",
+            "mpfr check ok",
+            "mpfr installed",
+            "mpc configured",
+            "mpc built",
+            "mpc check ok",
+            "mpc installed",
+            "gmp mpfr mpc link ok",
+            "gmp9 ok",
+            "rootfs sha256 ",
+            "rung done gmp9",
+        ),
+        "timeout": 24 * 3600,
+        "out": GCC95_OUT,
+    },
+    # 20-gcc95 README: g++ 4.6.4 builds GCC 9.5.0 for C and C++
+    # (--disable-bootstrap) into /usr/gcc9a, then the C and C++ tests;
+    # gcc9a/run.kaem runs gcc9a/run.sh
+    "gcc9a": {
+        "rootfs": os.path.join(GCC95_OUT, "rootfs-gmp9.tar"),
+        "steps": os.path.join(GCC95_DIR, "gcc9a"),
+        "extra": gcc9a_step_files,
+        "distfiles": (
+            ("gcc-9.5.0.tar.gz", "15b34072105272a3eb37f6927409f7ce9aa0dd1498efebc35f851d6e6f029a4d"),
+        ),
+        "marks": (
+            "gcc9a source ok",
+            "gcc9a configured",
+            "gcc9a support built",
+            "cc1 built",
+            "cc1plus built",
+            "xgcc built",
+            "libgcc built",
+            "libstdc++ built",
+            "gcc9a all built",
+            "gcc9a installed",
+            "gcc version 9.5.0",
+            "hello from gcc 9.5",
+            "hello from g++ 9.5",
+            "gcc9a sanity ok",
+            "rootfs sha256 ",
+            "rung done gcc9a",
+        ),
+        "timeout": 36 * 3600,
+        "out": GCC95_OUT,
+    },
+    # 20-gcc95 README: gcc9a runs GCC 9.5.0's `make bootstrap` (C, C++)
+    # into /usr, the fixed point gcc9a = gcc9, gcc9a and gcc 4.6.4 removed,
+    # the C and C++ tests; gcc9/run.kaem runs gcc9/run.sh
+    "gcc9": {
+        "rootfs": os.path.join(GCC95_OUT, "rootfs-gcc9a.tar"),
+        "steps": os.path.join(GCC95_DIR, "gcc9"),
+        "extra": gcc9_step_files,
+        "distfiles": (
+            ("gcc-9.5.0.tar.gz", "15b34072105272a3eb37f6927409f7ce9aa0dd1498efebc35f851d6e6f029a4d"),
+        ),
+        "marks": (
+            "gcc9 source ok",
+            "gcc9 configured",
+            "stage1 cc1 built",
+            "stage1 cc1plus built",
+            "stage1 libstdc++ built",
+            "stage2 cc1 built",
+            "stage2 cc1plus built",
+            "stage2 libstdc++ built",
+            "stage3 cc1 built",
+            "stage3 cc1plus built",
+            "stage3 libstdc++ built",
+            "Comparison successful",
+            "bootstrap compare ok",
+            "gcc9 installed",
+            "fixedpoint ok",
+            "gcc version 9.5.0",
+            "hello from gcc 9.5.0",
+            "hello from g++ 9.5.0",
+            "gcc9 sanity ok",
+            "rootfs sha256 ",
+            "rung done gcc9",
+        ),
+        "timeout": 72 * 3600,
+        "out": GCC95_OUT,
     },
 }
 RUNG_FAIL_MARKS = FAIL_MARKS + ("rung exit ",)

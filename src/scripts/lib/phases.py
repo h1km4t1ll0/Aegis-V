@@ -44,6 +44,7 @@ STAGE_DIR = {
     "17": "17-binutils",
     "18": "18-gmp-mpfr-mpc",
     "19": "19-gcc464",
+    "20": "20-gcc95",
 }
 
 ARTIFACT_STEM = {

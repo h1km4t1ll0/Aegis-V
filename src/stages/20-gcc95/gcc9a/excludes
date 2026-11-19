@@ -1,0 +1,29 @@
+# paxx -s 1 -X excludes (20-gcc95 README, "Source tree"): fnmatch() with
+# FNM_LEADING_DIR on the name below gcc-9.5.0/; `*` also matches `/`;
+# `!PATTERN` keeps a member an earlier pattern left out
+gcc/testsuite
+!gcc/testsuite/selftests
+libgo
+gotools
+libphobos
+gcc/ada
+libada
+gnattools
+gcc/fortran
+libgfortran
+gcc/objc
+gcc/objcp
+libobjc
+gcc/brig
+libbrig
+libhsail-rt
+libsanitizer
+libvtv
+liboffloadmic
+libgomp
+libitm
+libquadmath
+libstdc++-v3/testsuite/*
+!libstdc++-v3/testsuite/Makefile.in
+*.gmo
+*.info

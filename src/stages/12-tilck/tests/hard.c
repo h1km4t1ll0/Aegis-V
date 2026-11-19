@@ -31,12 +31,19 @@
                 of a big (mmap()ed) block to a small size keeps the heap
                 around the new block intact;
    scriptargs ok execve() of a "#!" script with 400 arguments runs its
-                interpreter with all of them (was E2BIG from 30 on).
+                interpreter with all of them (was E2BIG from 30 on);
+   fpustate ok  a process starts after execve() with the default FPU
+                state (round to nearest, no flags), not the rounding mode
+                and flags of the image before it; a fork() child gets the
+                parent's rounding mode and keeps its own across switches
+                (rung gmp9).
    Exits 1 if any check failed. "hard xchild" is the exec'd side of the
-   xbit check: it exits 42. */
+   xbit check: it exits 42; "hard fpuget" that of the fpustate check. */
 #define _GNU_SOURCE 1 /* mremap(), MREMAP_MAYMOVE */
 #include <errno.h>
 #include <fcntl.h>
+#include <fenv.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1097,10 +1104,85 @@ static void test_mremap(void)
     mark(before, "mremap ok");
 }
 
+/* fpustate (rung gmp9, 20-gcc95 README): Tilck gave a task its FPU on the
+   first FP instruction without loading the task's own (zeroed) context, so
+   a new image ran with the f registers and fcsr the last FPU user left:
+   after a process that had set FE_TOWARDZERO, the next ones rounded toward
+   zero (mpfr 3.1.4's tget_d, tget_flt). A fork() child ran with FS on but
+   no context of its own: never saved, so another task's state reached it
+   at every switch. */
+
+/* "hard fpuget": 0 if the FPU is in its default state, else 1 + 4 *
+   rounding mode + 16 * (flags != 0) */
+static int fpuget_main(void)
+{
+    int r = fegetround();
+    int f = fetestexcept(FE_ALL_EXCEPT);
+
+    if (r == FE_TONEAREST && f == 0)
+        return 0;
+    return 1 + 4 * r + 16 * (f != 0);
+}
+
+static void test_fpustate(void)
+{
+    int before = fails;
+    pid_t pid;
+    long code;
+    int i, bad;
+
+    /* 1. a child sets FE_TOWARDZERO and two flags, then execs "fpuget" */
+    pid = fork();
+    if (pid == 0) {
+        fesetround(FE_TOWARDZERO);
+        feraiseexcept(FE_INEXACT | FE_OVERFLOW);
+        if (fegetround() != FE_TOWARDZERO)
+            _exit(100);
+        execl(SELF, "hard", "fpuget", (char *)0);
+        _exit(101);
+    }
+    if (pid < 0)
+        fail("fpustate fork", errno);
+    else if ((code = wait_code(pid)) != 0)
+        fail("fpustate exec", code);
+
+    /* 2. parent in FE_UPWARD, child inherits it, sets FE_TONEAREST; both
+       yield to each other and check their own mode each time */
+    fesetround(FE_UPWARD);
+    pid = fork();
+    if (pid == 0) {
+        if (fegetround() != FE_UPWARD)
+            _exit(1);
+        fesetround(FE_TONEAREST);
+        for (i = 0; i < 300; i++) {
+            sched_yield();
+            if (fegetround() != FE_TONEAREST)
+                _exit(2);
+        }
+        _exit(0);
+    }
+    bad = 0;
+    for (i = 0; i < 300; i++) {
+        sched_yield();
+        if (fegetround() != FE_UPWARD)
+            bad++;
+    }
+    fesetround(FE_TONEAREST);
+    if (pid < 0)
+        fail("fpustate fork", errno);
+    else if ((code = wait_code(pid)) != 0)
+        fail("fpustate fork child", code);
+    if (bad)
+        fail("fpustate fork parent", bad);
+    mark(before, "fpustate ok");
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "xchild") == 0)
         return 42;
+    if (argc > 1 && strcmp(argv[1], "fpuget") == 0)
+        return fpuget_main();
     if (argc > 1 && strcmp(argv[1], "xargs") == 0)
         return xargs_main(argc, argv);
     setvbuf(stdout, 0, _IONBF, 0);
@@ -1125,5 +1207,6 @@ int main(int argc, char **argv)
     test_munmappart();
     test_mremap();
     test_scriptargs();
+    test_fpustate();
     return fails ? 1 : 0;
 }
