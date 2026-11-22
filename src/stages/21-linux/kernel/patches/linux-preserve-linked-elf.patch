@@ -1,0 +1,14 @@
+Preserve our guest-linked ELF before postprocessing. A failed sorter must
+not force rebuilding all compiler outputs; this copy is diagnostic, not a
+completed kernel, and still needs real sorting before it can be promoted.
+
+--- a/scripts/link-vmlinux.sh
++++ b/scripts/link-vmlinux.sh
+@@ -193,6 +193,7 @@
+ 
+ sorttable()
+ {
++	cp "${1}" /usr/share/aegis/linux66/vmlinux.unsorted
+ 	${objtree}/scripts/sorttable ${1}
+ }
+ 

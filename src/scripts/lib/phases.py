@@ -45,6 +45,7 @@ STAGE_DIR = {
     "18": "18-gmp-mpfr-mpc",
     "19": "19-gcc464",
     "20": "20-gcc95",
+    "21": "21-linux",
 }
 
 ARTIFACT_STEM = {

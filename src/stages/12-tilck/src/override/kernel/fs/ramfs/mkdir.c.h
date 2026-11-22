@@ -41,8 +41,9 @@ static int ramfs_rmdir(struct vfs_path *p)
    if (!rp->dir_entry)
       return -EINVAL; /* root dir case */
 
-   if (p->last_comp[0] == '.' && !p->last_comp[1])
-      return -EINVAL; /* trying to delete /a/b/c/. */
+   if (p->last_comp[0] == '.' &&
+       (!p->last_comp[1] || p->last_comp[1] == '/'))
+      return -EINVAL; /* trying to delete /a/b/c/. or /a/b/c/./ */
 
    if (i->num_entries > 2)
       return -ENOTEMPTY; /* empty dirs have two entries: '.' and '..' */

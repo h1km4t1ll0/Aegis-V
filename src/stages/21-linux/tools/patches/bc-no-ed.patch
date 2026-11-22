@@ -1,0 +1,23 @@
+bc 1.07.1's generated math library is produced by the real guest-built fbc.
+Only its final C-string formatting uses ed, absent from rootfs-gcc9.tar.
+Use the already guest-built sed for the same substitutions: quote the
+first and remaining lines, drop the trailing line, terminate with ,0}.
+
+--- a/bc/fix-libmath_h
++++ b/bc/fix-libmath_h
+@@ -1,9 +1,6 @@
+-ed libmath.h <<EOS-EOS
+-1,1s/^/{"/
+-1,\$s/\$/",/
+-2,\$s/^/"/
+-\$,\$d
+-\$,\$s/,\$/,0}/
+-w
+-q
+-EOS-EOS
++#!/bin/sh
++set -e
++sed -e '1s/^/{"/' -e 's/$/",/' -e '2,$s/^/"/' -e '$d' \
++    libmath.h > libmath.tmp
++sed '$s/,$/,0}/' libmath.tmp > libmath.h
++rm libmath.tmp

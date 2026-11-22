@@ -228,6 +228,9 @@ ramfs_rename(struct mnt_fs *fs, struct vfs_path *voldp, struct vfs_path *vnewp)
 
    ASSERT(rwlock_wp_holding_exlock(&d->rwlock));
 
+   if (newp->inode == oldp->inode)
+      return 0;
+
    if (newp->inode != NULL) {
 
       if (newp->type == VFS_DIR) {

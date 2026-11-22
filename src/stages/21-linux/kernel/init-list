@@ -1,0 +1,29 @@
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+nod /dev/null 0666 0 0 c 1 3
+nod /dev/zero 0666 0 0 c 1 5
+nod /dev/random 0666 0 0 c 1 8
+nod /dev/urandom 0666 0 0 c 1 9
+dir /tmp 0755 0 0
+dir /bin 0755 0 0
+dir /proc 0555 0 0
+dir /sys 0555 0 0
+file /bin/busybox /usr/share/aegis/linux66/busybox 0755 0 0
+slink /bin/sh busybox 0777 0 0
+slink /bin/mount busybox 0777 0 0
+slink /bin/umount busybox 0777 0 0
+slink /bin/mktemp busybox 0777 0 0
+file /init /build/init 0755 0 0
+file /smoke.sh /steps/smoke.sh 0755 0 0
+file /hello.c /steps/tests/hello.c 0644 0 0
+file /hello.cpp /steps/tests/hello.cpp 0644 0 0
+file /rootfs.tar /initrd/rootfs.tar 0644 0 0
+file /paxx.c /steps/src/paxx.c 0644 0 0
+file /e2fsprogs-1.45.7.tar.xz /initrd/distfiles/e2fsprogs-1.45.7.tar.xz 0644 0 0
+dir /disk 0755 0 0
+file /disk/build.sh /steps/disk/build.sh 0755 0 0
+file /disk/persistence.sh /steps/disk/persistence.sh 0755 0 0
+file /disk/README.md /steps/disk/README.md 0644 0 0
+file /disk/sources /steps/disk/sources 0644 0 0
+file /disk/archive.sha256 /steps/disk/archive.sha256 0644 0 0
+file /disk/source-checksums.sha256 /steps/disk/source-checksums.sha256 0644 0 0

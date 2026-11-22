@@ -1,0 +1,24 @@
+BusyBox fixdep only reads immutable build inputs. Tilck ramfs supports
+shared file mappings, but sys_mmap_pgoff rejects private file mappings.
+Use read-only MAP_SHARED for those two input mappings; keep the real parser.
+
+--- a/scripts/basic/fixdep.c
++++ b/scripts/basic/fixdep.c
+@@ -297,7 +297,7 @@
+ 		close(fd);
+ 		return;
+ 	}
+-	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
++	map = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+ 	if ((long) map == -1) {
+ 		perror("fixdep: mmap");
+ 		close(fd);
+@@ -369,7 +369,7 @@
+ 		close(fd);
+ 		return;
+ 	}
+-	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
++	map = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+ 	if ((long) map == -1) {
+ 		perror("fixdep: mmap");
+ 		close(fd);

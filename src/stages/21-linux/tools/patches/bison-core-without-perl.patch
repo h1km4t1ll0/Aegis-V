@@ -1,0 +1,11 @@
+--- a/configure
++++ b/configure
+@@ -8935,7 +8935,7 @@
+ 
+ 
+ if test -z "$PERL"; then
+-   as_fn_error $? "perl not found" "$LINENO" 5
++   { $as_echo "$as_me: WARNING: Perl absent; build core targets only" >&2;}
+ fi
+ 
+ HELP2MAN=${HELP2MAN-"${am_missing_run}help2man"}

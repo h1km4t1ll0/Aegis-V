@@ -1,0 +1,13 @@
+mainmenu "Aegis native shell probe"
+
+config AEGIS_SHELL_OK
+    bool "True shell result"
+    default $(shell,echo y)
+
+config AEGIS_SHELL_FAIL
+    bool "False shell result"
+    default $(shell,if false; then echo y; else echo n; fi)
+
+config AEGIS_SHELL_LINES
+    string "Folded shell output"
+    default "$(shell,echo one; echo two)"

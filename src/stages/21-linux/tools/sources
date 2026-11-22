@@ -1,0 +1,4 @@
+f https://ftp.gnu.org/gnu/bash/bash-4.4.tar.gz d86b3392c1202e8ff5a423b302e6284db7f8f435ea9f39b5b1b20fd3ac36dfcb
+f https://ftp.gnu.org/gnu/sed/sed-4.8.tar.xz f79b0cfea71b37a8eeec8490db6c5f7ae7719c35587f21edb0617f370eeff633
+f https://ftp.gnu.org/gnu/bison/bison-3.0.4.tar.gz b67fd2daae7a64b5ba862c66c07c1addb9e6b1b05c5f2049392cfd8a2172952e
+f https://ftp.gnu.org/gnu/bc/bc-1.07.1.tar.gz 62adfca89b0a1c0164c2cdca59ca210c1d44c3ffc46daf9931cf4942664cb02a

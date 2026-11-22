@@ -1,0 +1,40 @@
+BusyBox split-include needs a list of preexisting configuration headers.
+Run the real guest GNU find from the make shell and pass its output on stdin,
+avoiding musl popen/posix_spawn on Tilck. Header generation and cleanup remain.
+
+--- a/scripts/basic/split-include.c
++++ b/scripts/basic/split-include.c
+@@ -190,7 +190,9 @@
+      * So by having an initial \n, strstr will find exact matches.
+      */
+ 
+-    fp_find = popen("find * -type f -name \"*.h\" -print", "r");
++    /* The build recipe supplies the old header list from real GNU find.
++     * Newly created headers are in list_target and require no cleanup. */
++    fp_find = stdin;
+     if (fp_find == 0)
+ 	ERROR_EXIT( "find" );
+ 
+@@ -221,7 +223,7 @@
+ 	}
+     }
+ 
+-    if (pclose(fp_find) != 0)
++    if (ferror(fp_find))
+ 	ERROR_EXIT("find");
+ 
+     return 0;
+--- a/Makefile
++++ b/Makefile
+@@ -850,7 +850,10 @@
+ quiet_cmd_gen_common_bufsiz = GEN     include/common_bufsiz.h
+       cmd_gen_common_bufsiz = $(srctree)/scripts/generate_BUFSIZ.sh include/common_bufsiz.h
+ quiet_cmd_split_autoconf   = SPLIT   include/autoconf.h -> include/config/*
+-      cmd_split_autoconf   = scripts/basic/split-include include/autoconf.h include/config
++      cmd_split_autoconf   = mkdir -p include/config && \
++        find include/config -type f -name '*.h' -printf '%P\n' > .config-files && \
++        scripts/basic/split-include include/autoconf.h include/config < .config-files && \
++        rm .config-files
+ quiet_cmd_gen_embedded_scripts = GEN     include/embedded_scripts.h
+       cmd_gen_embedded_scripts = $(srctree)/scripts/embedded_scripts include/embedded_scripts.h $(srctree)/embed $(srctree)/applets_sh
+ #bbox# piggybacked generation of few .h files

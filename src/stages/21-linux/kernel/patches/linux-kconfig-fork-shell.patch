@@ -1,0 +1,59 @@
+Run genuine Kconfig shell/compiler probes with pipe/fork/exec/wait rather
+than musl popen/posix_spawn on Tilck. Keep output folding and result semantics.
+
+--- a/scripts/kconfig/preprocess.c
++++ b/scripts/kconfig/preprocess.c
+@@ -3,6 +3,9 @@
+ // Copyright (C) 2018 Masahiro Yamada <yamada.masahiro@socionext.com>
+ 
+ #include <ctype.h>
++#include <errno.h>
++#include <sys/wait.h>
++#include <unistd.h>
+ #include <stdarg.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+@@ -144,11 +147,28 @@
+ 	char buf[4096];
+ 	char *cmd;
+ 	size_t nread;
+-	int i;
++	int i, fds[2], status;
++	pid_t child, waited;
+ 
+ 	cmd = argv[0];
+ 
+-	p = popen(cmd, "r");
++	/* Use ordinary fork/exec for the Tilck build host. */
++	if (pipe(fds) < 0 || (child = fork()) < 0) {
++		perror(cmd);
++		exit(1);
++	}
++	if (child == 0) {
++		close(fds[0]);
++		if (dup2(fds[1], STDOUT_FILENO) < 0)
++			_exit(127);
++		if (fds[1] != STDOUT_FILENO)
++			close(fds[1]);
++		execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
++		perror("Kconfig shell exec");
++		_exit(127);
++	}
++	close(fds[1]);
++	p = fdopen(fds[0], "r");
+ 	if (!p) {
+ 		perror(cmd);
+ 		exit(1);
+@@ -170,7 +190,11 @@
+ 			buf[i] = ' ';
+ 	}
+ 
+-	if (pclose(p) == -1) {
++	fclose(p);
++	do {
++		waited = waitpid(child, &status, 0);
++	} while (waited < 0 && errno == EINTR);
++	if (waited < 0) {
+ 		perror(cmd);
+ 		exit(1);
+ 	}

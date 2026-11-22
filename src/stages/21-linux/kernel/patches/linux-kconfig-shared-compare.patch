@@ -1,0 +1,19 @@
+Kconfig compares immutable files read-only; use the shared file mappings
+supported by Tilck instead of unsupported MAP_PRIVATE.
+
+--- a/scripts/kconfig/confdata.c
++++ b/scripts/kconfig/confdata.c
+@@ -65,11 +65,11 @@
+ 	if (st1.st_size != st2.st_size)
+ 		goto close2;
+ 
+-	map1 = mmap(NULL, st1.st_size, PROT_READ, MAP_PRIVATE, fd1, 0);
++	map1 = mmap(NULL, st1.st_size, PROT_READ, MAP_SHARED, fd1, 0);
+ 	if (map1 == MAP_FAILED)
+ 		goto close2;
+ 
+-	map2 = mmap(NULL, st2.st_size, PROT_READ, MAP_PRIVATE, fd2, 0);
++	map2 = mmap(NULL, st2.st_size, PROT_READ, MAP_SHARED, fd2, 0);
+ 	if (map2 == MAP_FAILED)
+ 		goto close2;
+ 

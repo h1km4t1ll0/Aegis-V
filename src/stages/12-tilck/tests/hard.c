@@ -41,6 +41,7 @@
    xbit check: it exits 42; "hard fpuget" that of the fpustate check. */
 #define _GNU_SOURCE 1 /* mremap(), MREMAP_MAYMOVE */
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <fenv.h>
 #include <sched.h>
@@ -1177,6 +1178,69 @@ static void test_fpustate(void)
     mark(before, "fpustate ok");
 }
 
+/* sed 4.8's configure renames a file to itself after a hard-link probe.
+   It must leave both the inode and directory entries untouched. */
+static void test_rename_same(void)
+{
+    int before = fails;
+    int fd, n;
+    char buf[16];
+    struct stat a, b;
+    DIR *dir;
+    struct dirent *ent;
+    int found = 0;
+
+    mkdir(TOP "/rename", 0755);
+    fd = open(TOP "/rename/a", O_CREAT | O_TRUNC | O_WRONLY, 0644);
+    if (fd < 0 || write(fd, "rename-data", 11) != 11) {
+        fail("rename create", errno);
+        if (fd >= 0) close(fd);
+        return;
+    }
+    close(fd);
+    if (stat(TOP "/rename/a", &a) || rename(TOP "/rename/a", TOP "/rename/a") ||
+        stat(TOP "/rename/a", &b)) {
+        fail("rename same file", errno);
+        return;
+    }
+    if (a.st_ino != b.st_ino || b.st_nlink != 1 || b.st_size != 11 ||
+        !S_ISREG(b.st_mode)) {
+        fail("rename same inode changed", b.st_size);
+        return;
+    }
+    if (link(TOP "/rename/a", TOP "/rename/b") ||
+        rename(TOP "/rename/a", TOP "/rename/b") ||
+        stat(TOP "/rename/a", &a) || stat(TOP "/rename/b", &b) ||
+        a.st_ino != b.st_ino || a.st_nlink != 2 || b.st_nlink != 2) {
+        fail("rename hardlink aliases", errno);
+        return;
+    }
+    fd = open(TOP "/rename/b", O_RDONLY);
+    n = fd < 0 ? -1 : read(fd, buf, sizeof(buf));
+    if (fd >= 0) close(fd);
+    if (n != 11 || memcmp(buf, "rename-data", 11))
+        fail("rename data changed", n);
+    if (rename(TOP "/rename", TOP "/rename"))
+        fail("rename same directory", errno);
+    errno = 0;
+    if (!rename(TOP "/rename/missing", TOP "/rename/missing") || errno != ENOENT)
+        fail("rename missing", errno);
+    dir = opendir(TOP "/rename");
+    if (!dir) {
+        fail("rename opendir", errno);
+        return;
+    }
+    while ((ent = readdir(dir))) {
+        if (!strcmp(ent->d_name, "a") || !strcmp(ent->d_name, "b")) found++;
+    }
+    closedir(dir);
+    if (found != 2) fail("rename directory entries", found);
+    unlink(TOP "/rename/a");
+    unlink(TOP "/rename/b");
+    rmdir(TOP "/rename");
+    mark(before, "rename same ok");
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "xchild") == 0)
@@ -1186,6 +1250,11 @@ int main(int argc, char **argv)
     if (argc > 1 && strcmp(argv[1], "xargs") == 0)
         return xargs_main(argc, argv);
     setvbuf(stdout, 0, _IONBF, 0);
+    if (argc > 1 && strcmp(argv[1], "renameonly") == 0) {
+        mkdir(TOP, 0755);
+        test_rename_same();
+        return fails ? 1 : 0;
+    }
     if (mkdir(TOP, 0755) != 0)
         fail("mkdir " TOP, errno);
     test_fdmax();
@@ -1208,5 +1277,6 @@ int main(int argc, char **argv)
     test_mremap();
     test_scriptargs();
     test_fpustate();
+    test_rename_same();
     return fails ? 1 : 0;
 }

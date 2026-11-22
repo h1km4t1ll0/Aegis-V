@@ -1,0 +1,53 @@
+Modpost needs a private writable ELF copy. Tilck rejects private file
+mappings, so read the exact file bytes into a private heap buffer and free
+it after the unchanged ELF parser; never write the modified buffer back.
+
+--- a/scripts/mod/modpost.c
++++ b/scripts/mod/modpost.c
+@@ -397,7 +397,8 @@
+ static void *grab_file(const char *filename, size_t *size)
+ {
+ 	struct stat st;
+-	void *map = MAP_FAILED;
++	void *map = NULL;
++	size_t off = 0;
+ 	int fd;
+ 
+ 	fd = open(filename, O_RDONLY);
+@@ -407,18 +408,32 @@
+ 		goto failed;
+ 
+ 	*size = st.st_size;
+-	map = mmap(NULL, *size, PROT_READ|PROT_WRITE, MAP_PRIVATE, fd, 0);
++	/* Keep a private writable copy without requiring file-backed mmap. */
++	map = malloc(*size);
++	if (!map)
++		goto failed;
++	while (off < *size) {
++		ssize_t n = read(fd, (char *)map + off, *size - off);
++		if (n < 0 && errno == EINTR)
++			continue;
++		if (n <= 0) {
++			if (n == 0)
++				errno = EIO;
++			free(map);
++			map = NULL;
++			goto failed;
++		}
++		off += n;
++	}
+ 
+ failed:
+ 	close(fd);
+-	if (map == MAP_FAILED)
+-		return NULL;
+ 	return map;
+ }
+ 
+ static void release_file(void *file, size_t size)
+ {
+-	munmap(file, size);
++	free(file);
+ }
+ 
+ static int parse_elf(struct elf_info *info, const char *filename)

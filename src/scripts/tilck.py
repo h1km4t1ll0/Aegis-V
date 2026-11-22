@@ -116,6 +116,7 @@ TEST_MARKS = (
     "mremap ok",
     "scriptargs ok",
     "fpustate ok",
+    "rename same ok",
     "outbox sha256 ",
     "tests done",
 )
@@ -456,6 +457,67 @@ def gcc9_step_files():
     return gcc9a_step_files() + [
         (p, b) for p, b in tree_files("steps/", gcc9a) if p.startswith("steps/tests/")
     ]
+
+
+def linux_tools_step_files():
+    """Guest-built paxx and long-name mkustar, using the previous rung's sources."""
+    return gcc9a_step_files()
+
+
+def linux_bash_step_files():
+    """The same verified sources, stopping after Bash's build and probe."""
+    return linux_tools_step_files() + [
+        ("steps/run.kaem", b"/bin/sh /initrd/steps/run.sh bash-only\n"),
+    ]
+
+
+def linux_build_step_files():
+    """Exact guest build sources; firmware lives beside the kernel recipe."""
+    firmware = os.path.join(ROOT, "src", "stages", "21-linux", "firmware")
+    disk = os.path.join(ROOT, "src", "stages", "21-linux", "disk")
+    return (gcc9a_step_files() + tree_files("steps/firmware/", firmware)
+            + tree_files("steps/disk/", disk))
+
+
+def linux_base_step_files():
+    return linux_build_step_files() + [
+        ("steps/run.kaem", b"/bin/sh /initrd/steps/run.sh base-only\n"),
+    ]
+
+
+def linux_ready_step_files():
+    """Raw pinned generator source and exact outputs of our completed kernel rung."""
+    import tarfile
+    linux_dir = os.path.join(ROOT, "src", "stages", "21-linux")
+    kernel_files = [(p, b) for p, b in tree_files("steps/", os.path.join(linux_dir, "kernel"))
+                    if p not in ("steps/run.sh", "steps/run.kaem", "steps/sources")]
+    entries = linux_build_step_files() + kernel_files
+    gawk = os.path.join(ROOT, "src", "stages", "16-buildtools", "steps", "gawk-3.0.4")
+    entries += [
+        ("steps/gawk.mk", open(os.path.join(gawk, "mk", "main.mk"), "rb").read()),
+        ("steps/alloca-size_t.patch", open(os.path.join(gawk, "patches", "alloca-size_t.patch"), "rb").read()),
+    ]
+    source = os.path.join(SOURCES, "linux-6.6.tar.gz")
+    source_sha = hashlib.sha256(open(source, "rb").read()).hexdigest()
+    if source_sha != "3c88ff4648122e81832b7067be6456ef28e119b64649a29e84f7f04691e489f9":
+        raise ValueError("Linux source archive SHA256 mismatch")
+    with tarfile.open(source, "r:gz") as tf:
+        gen = tf.extractfile("linux-6.6/usr/gen_init_cpio.c").read()
+    entries.append(("steps/src/gen_init_cpio.c", gen))
+    entries.append(("steps/gen-cpio.sha256", (hashlib.sha256(gen).hexdigest()
+                    + "  /steps/src/gen_init_cpio.c\n").encode()))
+    sums = []
+    previous = os.path.join(artifacts("21-linux"), "rootfs-linux-build.tar")
+    with tarfile.open(previous, "r:") as tf:
+        for name in ("Image", "sbi.bin", "config"):
+            member = tf.getmember("usr/share/aegis/linux66/" + name)
+            if not member.isfile() or member.size > 16 << 20:
+                raise ValueError("invalid previous guest artifact " + name)
+            data = tf.extractfile(member).read()
+            entries.append(("previous/" + name, data))
+            sums.append(hashlib.sha256(data).hexdigest() + "  /initrd/previous/" + name + "\n")
+    entries.append(("steps/previous-kernel.sha256", "".join(sums).encode()))
+    return entries
 
 
 # --rung NAME. rootfs: the tar unpacked into / (the seed, or the previous
@@ -849,6 +911,118 @@ RUNGS = {
         ),
         "timeout": 72 * 3600,
         "out": GCC95_OUT,
+    },
+    # Phase 1 checkpoints: GCC 9.5 -> Bash 4.4 -> Linux build tools.
+    "linux-bash": {
+        "rootfs": os.path.join(GCC95_OUT, "rootfs-gcc9.tar"),
+        "steps": os.path.join(ROOT, "src", "stages", "21-linux", "tools"),
+        "extra": linux_bash_step_files,
+        "distfiles": (
+            ("bash-4.4.tar.gz", "d86b3392c1202e8ff5a423b302e6284db7f8f435ea9f39b5b1b20fd3ac36dfcb"),
+            ("sed-4.8.tar.xz", "f79b0cfea71b37a8eeec8490db6c5f7ae7719c35587f21edb0617f370eeff633"),
+            ("bison-3.0.4.tar.gz", "b67fd2daae7a64b5ba862c66c07c1addb9e6b1b05c5f2049392cfd8a2172952e"),
+            ("bc-1.07.1.tar.gz", "62adfca89b0a1c0164c2cdca59ca210c1d44c3ffc46daf9931cf4942664cb02a"),
+        ),
+        "marks": (
+            "linux tools source ok",
+            "bash arrays ok",
+            "bash installed",
+            "linux bash ok",
+            "rootfs sha256 ",
+            "rung done linux-bash",
+        ),
+        "timeout": 2 * 3600,
+        "out": artifacts("21-linux"),
+    },
+    "linux-tools": {
+        "rootfs": os.path.join(artifacts("21-linux"), "rootfs-linux-bash.tar"),
+        "steps": os.path.join(ROOT, "src", "stages", "21-linux", "tools"),
+        "extra": linux_tools_step_files,
+        "distfiles": (
+            ("bash-4.4.tar.gz", "d86b3392c1202e8ff5a423b302e6284db7f8f435ea9f39b5b1b20fd3ac36dfcb"),
+            ("sed-4.8.tar.xz", "f79b0cfea71b37a8eeec8490db6c5f7ae7719c35587f21edb0617f370eeff633"),
+            ("bison-3.0.4.tar.gz", "b67fd2daae7a64b5ba862c66c07c1addb9e6b1b05c5f2049392cfd8a2172952e"),
+            ("bc-1.07.1.tar.gz", "62adfca89b0a1c0164c2cdca59ca210c1d44c3ffc46daf9931cf4942664cb02a"),
+        ),
+        "marks": (
+            "linux tools source ok",
+            "bash installed",
+            "rmdir probe ok",
+            "nanosleep compatibility probe ok",
+            "sed installed",
+            "bison installed",
+            "bc installed",
+            "bash version 4.4",
+            "sed version 4.8",
+            "bison version 3.0.4",
+            "bc version 1.07.1",
+            "bash arrays ok",
+            "sed extended regex ok",
+            "bison parser ok",
+            "bc arithmetic ok",
+            "linux tools static ok",
+            "linux tools ok",
+            "rootfs sha256 ",
+            "rung done linux-tools",
+        ),
+        "timeout": 12 * 3600,
+        "out": artifacts("21-linux"),
+    },
+    "linux-base": {
+        "rootfs": os.path.join(artifacts("21-linux"), "rootfs-linux-tools.tar"),
+        "steps": os.path.join(ROOT, "src", "stages", "21-linux", "kernel"),
+        "extra": linux_base_step_files,
+        "distfiles": (
+            ("linux-6.6.tar.gz", "3c88ff4648122e81832b7067be6456ef28e119b64649a29e84f7f04691e489f9"),
+            ("busybox-1.36.1.tar.bz2", "b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"),
+            ("e2fsprogs-1.45.7.tar.xz", "62d49c86d9d4becf305093edd65464484dc9ea41c6ff9ae4f536e4a341b171a2"),
+        ),
+        "marks": (
+            "linux source ok", "linux headers ok", "linux busybox built",
+            "linux base ok", "rootfs sha256 ", "rung done linux-base",
+        ),
+        "timeout": 12 * 3600,
+        "out": artifacts("21-linux"),
+    },
+    "linux-build": {
+        "rootfs": os.path.join(artifacts("21-linux"), "rootfs-linux-base.tar"),
+        "steps": os.path.join(ROOT, "src", "stages", "21-linux", "kernel"),
+        "extra": linux_build_step_files,
+        "distfiles": (
+            ("linux-6.6.tar.gz", "3c88ff4648122e81832b7067be6456ef28e119b64649a29e84f7f04691e489f9"),
+            ("busybox-1.36.1.tar.bz2", "b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"),
+            ("e2fsprogs-1.45.7.tar.xz", "62d49c86d9d4becf305093edd65464484dc9ea41c6ff9ae4f536e4a341b171a2"),
+        ),
+        "marks": (
+            "linux source ok",
+            "linux headers ok",
+            "linux busybox built",
+            "linux config ok",
+            "linux prepare ok",
+            "linux cpio-generator ok",
+            "linux init built",
+            "linux firmware built",
+            "linux kernel built",
+            "rootfs sha256 ",
+            "rung done linux-build",
+        ),
+        "timeout": 24 * 3600,
+        "out": artifacts("21-linux"),
+    },
+    "linux-ready": {
+        "rootfs": os.path.join(artifacts("21-linux"), "rootfs-linux-base.tar"),
+        "steps": os.path.join(ROOT, "src", "stages", "21-linux", "ready"),
+        "extra": linux_ready_step_files,
+        "distfiles": (
+            ("e2fsprogs-1.45.7.tar.xz", "62d49c86d9d4becf305093edd65464484dc9ea41c6ff9ae4f536e4a341b171a2"),
+            ("gawk-3.0.4.tar.gz", "5cc35def1ff4375a8b9a98c2ff79e95e80987d24f0d42fdbb7b7039b3ddb3fb0"),
+        ),
+        "marks": (
+            "linux ready inputs ok", "linux ready awk ok", "linux ready generators built",
+            "linux ready initramfs built", "rootfs sha256 ", "rung done linux-ready",
+        ),
+        "timeout": 2 * 3600,
+        "out": artifacts("21-linux"),
     },
 }
 RUNG_FAIL_MARKS = FAIL_MARKS + ("rung exit ",)

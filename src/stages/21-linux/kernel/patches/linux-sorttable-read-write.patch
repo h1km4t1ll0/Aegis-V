@@ -1,0 +1,142 @@
+Keep the real kernel exception-table sorting and write the sorted bytes
+back explicitly. Use read/write buffers instead of shared file mmap on Tilck.
+
+--- a/scripts/sorttable.c
++++ b/scripts/sorttable.c
+@@ -21,7 +21,6 @@
+  */
+ 
+ #include <sys/types.h>
+-#include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <getopt.h>
+ #include <elf.h>
+@@ -72,43 +71,71 @@
+ static void (*w8)(uint64_t, uint64_t *);
+ typedef void (*table_sort_t)(char *, int);
+ 
+-/*
+- * Get the whole file as a programming convenience in order to avoid
+- * malloc+lseek+read+free of many pieces.  If successful, then mmap
+- * avoids copying unused pieces; else just read the whole file.
+- * Open for both read and write.
+- */
+-static void *mmap_file(char const *fname, size_t *size)
+-{
+-	int fd;
+-	struct stat sb;
+-	void *addr = NULL;
+-
+-	fd = open(fname, O_RDWR);
+-	if (fd < 0) {
+-		perror(fname);
+-		return NULL;
+-	}
+-	if (fstat(fd, &sb) < 0) {
+-		perror(fname);
+-		goto out;
+-	}
+-	if (!S_ISREG(sb.st_mode)) {
+-		fprintf(stderr, "not a regular file: %s\n", fname);
+-		goto out;
+-	}
+-
+-	addr = mmap(0, sb.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+-	if (addr == MAP_FAILED) {
+-		fprintf(stderr, "Could not mmap file: %s\n", fname);
+-		goto out;
+-	}
+-
+-	*size = sb.st_size;
+-
+-out:
+-	close(fd);
+-	return addr;
++/* Use a private writable copy; keep sorting independent of file mmap. */
++static void *read_file(char const *fname, size_t *size)
++{
++    int fd = open(fname, O_RDONLY);
++    struct stat st;
++    char *buf = NULL;
++    size_t off = 0;
++    if (fd < 0)
++        goto fail;
++    if (fstat(fd, &st) < 0)
++        goto fail;
++    if (!S_ISREG(st.st_mode) || st.st_size <= 0) {
++        errno = EINVAL;
++        goto fail;
++    }
++    buf = malloc(st.st_size);
++    if (!buf)
++        goto fail;
++    while (off < (size_t)st.st_size) {
++        ssize_t n = read(fd, buf + off, st.st_size - off);
++        if (n < 0 && errno == EINTR)
++            continue;
++        if (n <= 0) {
++            if (!n)
++                errno = EIO;
++            goto fail;
++        }
++        off += n;
++    }
++    close(fd);
++    *size = st.st_size;
++    return buf;
++fail:
++    perror(fname);
++    if (fd >= 0)
++        close(fd);
++    free(buf);
++    return NULL;
++}
++
++static int write_file(char const *fname, const void *buf, size_t size)
++{
++    int fd = open(fname, O_WRONLY);
++    size_t off = 0;
++    if (fd < 0)
++        goto fail;
++    while (off < size) {
++        ssize_t n = write(fd, (const char *)buf + off, size - off);
++        if (n < 0 && errno == EINTR)
++            continue;
++        if (n <= 0) {
++            if (!n)
++                errno = EIO;
++            goto fail;
++        }
++        off += n;
++    }
++    if (close(fd) == 0)
++        return 0;
++    fd = -1;
++fail:
++    perror(fname);
++    if (fd >= 0)
++        close(fd);
++    return -1;
+ }
+ 
+ static uint32_t rbe(const uint32_t *x)
+@@ -373,16 +400,16 @@
+ 
+ 	/* Process each file in turn, allowing deep failure. */
+ 	for (i = 1; i < argc; i++) {
+-		addr = mmap_file(argv[i], &size);
++		addr = read_file(argv[i], &size);
+ 		if (!addr) {
+ 			++n_error;
+ 			continue;
+ 		}
+ 
+-		if (do_file(argv[i], addr))
++		if (do_file(argv[i], addr) || write_file(argv[i], addr, size))
+ 			++n_error;
+ 
+-		munmap(addr, size);
++		free(addr);
+ 	}
+ 
+ 	return !!n_error;
